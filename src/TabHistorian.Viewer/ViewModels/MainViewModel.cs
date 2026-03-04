@@ -125,7 +125,10 @@ public class MainViewModel : ViewModelBase, IDisposable
                 {
                     ProfileDisplayName = wFirst.ProfileDisplayName,
                     WindowIndex = wFirst.WindowIndex,
-                    TabCount = windowGroup.Count()
+                    TabCount = windowGroup.Count(),
+                    WindowTypeLabel = wFirst.WindowType switch { 1 => "popup", 2 => "app", _ => "" },
+                    ShowStateLabel = wFirst.ShowState switch { 2 => "minimized", 3 => "maximized", 4 => "fullscreen", _ => "" },
+                    IsActive = wFirst.IsActive
                 };
 
                 foreach (var tab in windowGroup)
@@ -134,7 +137,8 @@ public class MainViewModel : ViewModelBase, IDisposable
                     {
                         Title = tab.Title,
                         CurrentUrl = tab.CurrentUrl,
-                        Pinned = tab.Pinned
+                        Pinned = tab.Pinned,
+                        LastActiveTime = FormatTimestamp(tab.LastActiveTime)
                     };
 
                     // Parse navigation history JSON
@@ -146,7 +150,11 @@ public class MainViewModel : ViewModelBase, IDisposable
                             tabNode.NavEntries.Add(new NavEntryNode
                             {
                                 Url = entry.GetProperty("url").GetString() ?? "",
-                                Title = entry.TryGetProperty("title", out var t) ? t.GetString() ?? "" : ""
+                                Title = entry.TryGetProperty("title", out var t) ? t.GetString() ?? "" : "",
+                                Timestamp = entry.TryGetProperty("timestamp", out var ts) && ts.ValueKind == JsonValueKind.String
+                                    ? FormatTimestamp(ts.GetString()) : null,
+                                HttpStatusCode = entry.TryGetProperty("httpStatus", out var hs) && hs.ValueKind == JsonValueKind.Number
+                                    ? hs.GetInt32() : 0
                             });
                         }
                     }
@@ -164,8 +172,9 @@ public class MainViewModel : ViewModelBase, IDisposable
         return snapshots;
     }
 
-    private static string FormatTimestamp(string iso)
+    private static string? FormatTimestamp(string? iso)
     {
+        if (string.IsNullOrEmpty(iso)) return null;
         return DateTime.TryParse(iso, out var dt)
             ? dt.ToLocalTime().ToString("yyyy-MM-dd HH:mm")
             : iso;

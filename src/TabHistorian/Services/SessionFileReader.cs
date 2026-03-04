@@ -16,9 +16,22 @@ public class SessionFileReader
     private const byte CmdUpdateTabNavigation = 6;
     private const byte CmdSetSelectedNavigationIndex = 7;
     private const byte CmdSetSelectedTabInIndex = 8;
+    private const byte CmdSetWindowType = 9;
     private const byte CmdSetPinnedState = 12;
+    private const byte CmdSetExtensionAppId = 13;
+    private const byte CmdSetWindowBounds3 = 14;
+    private const byte CmdSetWindowAppName = 15;
     private const byte CmdTabClosed = 16;
     private const byte CmdWindowClosed = 17;
+    private const byte CmdSetActiveWindow = 20;
+    private const byte CmdLastActiveTime = 21;
+    private const byte CmdSetWindowWorkspace2 = 23;
+    private const byte CmdSetTabGroup = 25;
+    private const byte CmdSetWindowUserTitle = 31;
+    private const byte CmdSetWindowVisibleOnAllWorkspaces = 32;
+
+    // WebKit epoch: 1601-01-01 00:00:00 UTC (same as Windows FILETIME but in microseconds)
+    private static readonly DateTime WebKitEpoch = new(1601, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 
     private readonly ILogger<SessionFileReader> _logger;
     private readonly SnssParser _parser = new();
@@ -97,12 +110,13 @@ public class SessionFileReader
         // State dictionaries keyed by session IDs
         var windows = new Dictionary<int, WindowState>();
         var tabs = new Dictionary<int, TabState>();
+        int activeWindowId = -1;
 
         foreach (var cmd in commands)
         {
             try
             {
-                ProcessCommand(cmd, windows, tabs);
+                ProcessCommand(cmd, windows, tabs, ref activeWindowId);
             }
             catch (Exception ex)
             {
@@ -114,10 +128,11 @@ public class SessionFileReader
             windows.Count(w => !w.Value.Closed), tabs.Count(t => !t.Value.Closed));
 
         // Build result: group tabs by window, filter out closed entities
-        return AssembleWindows(windows, tabs, profile);
+        return AssembleWindows(windows, tabs, profile, activeWindowId);
     }
 
-    private void ProcessCommand(SnssCommand cmd, Dictionary<int, WindowState> windows, Dictionary<int, TabState> tabs)
+    private void ProcessCommand(SnssCommand cmd, Dictionary<int, WindowState> windows,
+        Dictionary<int, TabState> tabs, ref int activeWindowId)
     {
         switch (cmd.Id)
         {
@@ -152,6 +167,12 @@ public class SessionFileReader
                 GetOrCreateWindow(windows, windowId).SelectedTabIndex = index;
                 break;
             }
+            case CmdSetWindowType:
+            {
+                var (windowId, windowType) = ReadIdAndIndex(cmd.Payload);
+                GetOrCreateWindow(windows, windowId).WindowType = windowType;
+                break;
+            }
             case CmdSetPinnedState:
             {
                 if (cmd.Payload.Length >= 5)
@@ -160,6 +181,36 @@ public class SessionFileReader
                     bool pinned = cmd.Payload[4] != 0;
                     GetOrCreateTab(tabs, tabId).Pinned = pinned;
                 }
+                break;
+            }
+            case CmdSetExtensionAppId:
+            {
+                var pickle = new PickleReader(cmd.Payload);
+                int tabId = pickle.ReadInt32();
+                string appId = pickle.ReadString();
+                GetOrCreateTab(tabs, tabId).ExtensionAppId = appId;
+                break;
+            }
+            case CmdSetWindowBounds3:
+            {
+                if (cmd.Payload.Length >= 24)
+                {
+                    int windowId = BitConverter.ToInt32(cmd.Payload, 0);
+                    var win = GetOrCreateWindow(windows, windowId);
+                    win.X = BitConverter.ToInt32(cmd.Payload, 4);
+                    win.Y = BitConverter.ToInt32(cmd.Payload, 8);
+                    win.Width = BitConverter.ToInt32(cmd.Payload, 12);
+                    win.Height = BitConverter.ToInt32(cmd.Payload, 16);
+                    win.ShowState = BitConverter.ToInt32(cmd.Payload, 20);
+                }
+                break;
+            }
+            case CmdSetWindowAppName:
+            {
+                var pickle = new PickleReader(cmd.Payload);
+                int windowId = pickle.ReadInt32();
+                string appName = pickle.ReadString();
+                GetOrCreateWindow(windows, windowId).AppName = appName;
                 break;
             }
             case CmdTabClosed:
@@ -182,6 +233,62 @@ public class SessionFileReader
                 }
                 break;
             }
+            case CmdSetActiveWindow:
+            {
+                var (windowId, _) = ReadIdAndIndex(cmd.Payload);
+                activeWindowId = windowId;
+                break;
+            }
+            case CmdLastActiveTime:
+            {
+                // IdAndPayload64 struct: int32 id (offset 0), 4 bytes padding, int64 payload (offset 8)
+                if (cmd.Payload.Length >= 16)
+                {
+                    int tabId = BitConverter.ToInt32(cmd.Payload, 0);
+                    long timestamp = BitConverter.ToInt64(cmd.Payload, 8);
+                    GetOrCreateTab(tabs, tabId).LastActiveTime = WebKitToDateTime(timestamp);
+                }
+                break;
+            }
+            case CmdSetWindowWorkspace2:
+            {
+                var pickle = new PickleReader(cmd.Payload);
+                int windowId = pickle.ReadInt32();
+                string workspace = pickle.ReadString();
+                GetOrCreateWindow(windows, windowId).Workspace = workspace;
+                break;
+            }
+            case CmdSetTabGroup:
+            {
+                if (cmd.Payload.Length >= 21) // int32 + uint64 + uint64 + bool
+                {
+                    int tabId = BitConverter.ToInt32(cmd.Payload, 0);
+                    ulong tokenHigh = BitConverter.ToUInt64(cmd.Payload, 4);
+                    ulong tokenLow = BitConverter.ToUInt64(cmd.Payload, 12);
+                    bool hasGroup = cmd.Payload[20] != 0;
+                    var tab = GetOrCreateTab(tabs, tabId);
+                    tab.TabGroupToken = hasGroup ? $"{tokenHigh:X16}{tokenLow:X16}" : null;
+                }
+                break;
+            }
+            case CmdSetWindowUserTitle:
+            {
+                var pickle = new PickleReader(cmd.Payload);
+                int windowId = pickle.ReadInt32();
+                string title = pickle.ReadString();
+                GetOrCreateWindow(windows, windowId).UserTitle = title;
+                break;
+            }
+            case CmdSetWindowVisibleOnAllWorkspaces:
+            {
+                if (cmd.Payload.Length >= 5)
+                {
+                    int windowId = BitConverter.ToInt32(cmd.Payload, 0);
+                    bool visible = cmd.Payload[4] != 0;
+                    GetOrCreateWindow(windows, windowId).VisibleOnAllWorkspaces = visible;
+                }
+                break;
+            }
         }
     }
 
@@ -198,6 +305,18 @@ public class SessionFileReader
         pickle.ReadString();
 
         int transitionType = pickle.ReadInt32();
+        int typeMask = pickle.ReadInt32();
+        bool hasPostData = (typeMask & 1) != 0;
+
+        string referrerUrl = pickle.ReadString();
+        pickle.ReadInt32(); // obsolete_referrer_policy (always 0)
+        string originalRequestUrl = pickle.ReadString();
+        pickle.ReadBool(); // is_overriding_user_agent
+
+        long timestamp = pickle.ReadInt64();
+
+        pickle.ReadString16(); // search_terms (always empty)
+        int httpStatusCode = pickle.ReadInt32();
 
         var tab = GetOrCreateTab(tabs, tabId);
 
@@ -209,8 +328,26 @@ public class SessionFileReader
         {
             Url = url,
             Title = title,
-            TransitionType = transitionType & 0xFF // lower 8 bits = core type
+            TransitionType = transitionType & 0xFF,
+            Timestamp = WebKitToDateTime(timestamp),
+            ReferrerUrl = referrerUrl,
+            OriginalRequestUrl = originalRequestUrl,
+            HttpStatusCode = httpStatusCode,
+            HasPostData = hasPostData
         };
+    }
+
+    private static DateTime? WebKitToDateTime(long webkitTimestamp)
+    {
+        if (webkitTimestamp <= 0) return null;
+        try
+        {
+            return WebKitEpoch.AddTicks(webkitTimestamp * 10);
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private static (int id, int index) ReadIdAndIndex(byte[] payload)
@@ -224,7 +361,8 @@ public class SessionFileReader
     private List<ChromeWindow> AssembleWindows(
         Dictionary<int, WindowState> windows,
         Dictionary<int, TabState> tabs,
-        ChromeProfile profile)
+        ChromeProfile profile,
+        int activeWindowId)
     {
         var result = new List<ChromeWindow>();
         int windowIndex = 0;
@@ -261,6 +399,9 @@ public class SessionFileReader
                         CurrentUrl = currentUrl,
                         Title = currentTitle,
                         Pinned = tabState.Pinned,
+                        LastActiveTime = tabState.LastActiveTime,
+                        TabGroupToken = tabState.TabGroupToken,
+                        ExtensionAppId = tabState.ExtensionAppId,
                         NavigationHistory = navEntries
                     };
                 })
@@ -274,6 +415,17 @@ public class SessionFileReader
                     ProfileName = profile.DirectoryName,
                     ProfileDisplayName = profile.DisplayName,
                     WindowIndex = windowIndex++,
+                    WindowType = windowState.WindowType,
+                    X = windowState.X,
+                    Y = windowState.Y,
+                    Width = windowState.Width,
+                    Height = windowState.Height,
+                    ShowState = windowState.ShowState,
+                    IsActive = windowId == activeWindowId,
+                    SelectedTabIndex = windowState.SelectedTabIndex,
+                    Workspace = windowState.Workspace,
+                    AppName = windowState.AppName,
+                    UserTitle = windowState.UserTitle,
                     Tabs = windowTabs
                 });
             }
@@ -305,6 +457,16 @@ public class SessionFileReader
     private class WindowState
     {
         public int SelectedTabIndex { get; set; }
+        public int WindowType { get; set; }
+        public int X { get; set; }
+        public int Y { get; set; }
+        public int Width { get; set; }
+        public int Height { get; set; }
+        public int ShowState { get; set; }
+        public string? Workspace { get; set; }
+        public string? AppName { get; set; }
+        public string? UserTitle { get; set; }
+        public bool VisibleOnAllWorkspaces { get; set; }
         public bool Closed { get; set; }
     }
 
@@ -315,6 +477,9 @@ public class SessionFileReader
         public int SelectedNavIndex { get; set; } = -1;
         public bool Pinned { get; set; }
         public bool Closed { get; set; }
+        public DateTime? LastActiveTime { get; set; }
+        public string? TabGroupToken { get; set; }
+        public string? ExtensionAppId { get; set; }
         public List<NavigationEntry> NavigationEntries { get; set; } = [];
     }
 }

@@ -39,7 +39,15 @@ public class StorageService : IDisposable
                 snapshot_id INTEGER NOT NULL REFERENCES snapshots(id),
                 profile_name TEXT NOT NULL,
                 profile_display_name TEXT,
-                window_index INTEGER NOT NULL
+                window_index INTEGER NOT NULL,
+                window_type INTEGER DEFAULT 0,
+                x INTEGER, y INTEGER, width INTEGER, height INTEGER,
+                show_state INTEGER DEFAULT 0,
+                is_active INTEGER DEFAULT 0,
+                selected_tab_index INTEGER DEFAULT 0,
+                workspace TEXT,
+                app_name TEXT,
+                user_title TEXT
             );
 
             CREATE TABLE IF NOT EXISTS tabs (
@@ -49,12 +57,16 @@ public class StorageService : IDisposable
                 current_url TEXT NOT NULL,
                 title TEXT,
                 pinned INTEGER DEFAULT 0,
+                last_active_time TEXT,
+                tab_group_token TEXT,
+                extension_app_id TEXT,
                 navigation_history TEXT
             );
 
             CREATE INDEX IF NOT EXISTS idx_snapshots_timestamp ON snapshots(timestamp);
             CREATE INDEX IF NOT EXISTS idx_tabs_current_url ON tabs(current_url);
             CREATE INDEX IF NOT EXISTS idx_windows_profile ON windows(profile_name);
+            CREATE INDEX IF NOT EXISTS idx_tabs_last_active ON tabs(last_active_time);
             """;
         cmd.ExecuteNonQuery();
     }
@@ -64,7 +76,6 @@ public class StorageService : IDisposable
         using var transaction = _connection.BeginTransaction();
         try
         {
-            // Insert snapshot
             using var snapshotCmd = _connection.CreateCommand();
             snapshotCmd.CommandText = "INSERT INTO snapshots (timestamp) VALUES (@ts) RETURNING id";
             snapshotCmd.Parameters.AddWithValue("@ts", snapshot.Timestamp.ToString("O"));
@@ -72,32 +83,60 @@ public class StorageService : IDisposable
 
             foreach (var window in snapshot.Windows)
             {
-                // Insert window
                 using var windowCmd = _connection.CreateCommand();
                 windowCmd.CommandText = """
-                    INSERT INTO windows (snapshot_id, profile_name, profile_display_name, window_index)
-                    VALUES (@sid, @pn, @pdn, @wi) RETURNING id
+                    INSERT INTO windows (snapshot_id, profile_name, profile_display_name, window_index,
+                        window_type, x, y, width, height, show_state, is_active, selected_tab_index,
+                        workspace, app_name, user_title)
+                    VALUES (@sid, @pn, @pdn, @wi, @wt, @x, @y, @w, @h, @ss, @ia, @sti,
+                        @ws, @an, @ut) RETURNING id
                     """;
                 windowCmd.Parameters.AddWithValue("@sid", snapshotId);
                 windowCmd.Parameters.AddWithValue("@pn", window.ProfileName);
                 windowCmd.Parameters.AddWithValue("@pdn", window.ProfileDisplayName);
                 windowCmd.Parameters.AddWithValue("@wi", window.WindowIndex);
+                windowCmd.Parameters.AddWithValue("@wt", window.WindowType);
+                windowCmd.Parameters.AddWithValue("@x", window.X);
+                windowCmd.Parameters.AddWithValue("@y", window.Y);
+                windowCmd.Parameters.AddWithValue("@w", window.Width);
+                windowCmd.Parameters.AddWithValue("@h", window.Height);
+                windowCmd.Parameters.AddWithValue("@ss", window.ShowState);
+                windowCmd.Parameters.AddWithValue("@ia", window.IsActive ? 1 : 0);
+                windowCmd.Parameters.AddWithValue("@sti", window.SelectedTabIndex);
+                windowCmd.Parameters.AddWithValue("@ws", (object?)window.Workspace ?? DBNull.Value);
+                windowCmd.Parameters.AddWithValue("@an", (object?)window.AppName ?? DBNull.Value);
+                windowCmd.Parameters.AddWithValue("@ut", (object?)window.UserTitle ?? DBNull.Value);
                 long windowId = (long)windowCmd.ExecuteScalar()!;
 
                 foreach (var tab in window.Tabs)
                 {
                     using var tabCmd = _connection.CreateCommand();
                     tabCmd.CommandText = """
-                        INSERT INTO tabs (window_id, tab_index, current_url, title, pinned, navigation_history)
-                        VALUES (@wid, @ti, @url, @title, @pinned, @nav)
+                        INSERT INTO tabs (window_id, tab_index, current_url, title, pinned,
+                            last_active_time, tab_group_token, extension_app_id, navigation_history)
+                        VALUES (@wid, @ti, @url, @title, @pinned, @lat, @tgt, @eai, @nav)
                         """;
                     tabCmd.Parameters.AddWithValue("@wid", windowId);
                     tabCmd.Parameters.AddWithValue("@ti", tab.TabIndex);
                     tabCmd.Parameters.AddWithValue("@url", tab.CurrentUrl);
                     tabCmd.Parameters.AddWithValue("@title", (object?)tab.Title ?? DBNull.Value);
                     tabCmd.Parameters.AddWithValue("@pinned", tab.Pinned ? 1 : 0);
+                    tabCmd.Parameters.AddWithValue("@lat",
+                        tab.LastActiveTime.HasValue ? (object)tab.LastActiveTime.Value.ToString("O") : DBNull.Value);
+                    tabCmd.Parameters.AddWithValue("@tgt", (object?)tab.TabGroupToken ?? DBNull.Value);
+                    tabCmd.Parameters.AddWithValue("@eai", (object?)tab.ExtensionAppId ?? DBNull.Value);
                     tabCmd.Parameters.AddWithValue("@nav", JsonSerializer.Serialize(
-                        tab.NavigationHistory.Select(n => new { url = n.Url, title = n.Title }),
+                        tab.NavigationHistory.Select(n => new
+                        {
+                            url = n.Url,
+                            title = n.Title,
+                            timestamp = n.Timestamp?.ToString("O"),
+                            referrer = string.IsNullOrEmpty(n.ReferrerUrl) ? null : n.ReferrerUrl,
+                            originalUrl = string.IsNullOrEmpty(n.OriginalRequestUrl) ? null : n.OriginalRequestUrl,
+                            httpStatus = n.HttpStatusCode > 0 ? n.HttpStatusCode : (int?)null,
+                            transition = n.TransitionType,
+                            hasPostData = n.HasPostData ? true : (bool?)null
+                        }),
                         JsonSerializerOptions.Web));
                     tabCmd.ExecuteNonQuery();
                 }

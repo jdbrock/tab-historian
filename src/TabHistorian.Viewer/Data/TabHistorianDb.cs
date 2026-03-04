@@ -8,7 +8,9 @@ public record SnapshotInfo(long Id, string Timestamp, int WindowCount, int TabCo
 public record TabRow(
     long SnapshotId, string SnapshotTimestamp,
     long WindowId, string ProfileName, string ProfileDisplayName, int WindowIndex,
-    long TabId, int TabIndex, string CurrentUrl, string Title, bool Pinned, string NavigationHistory);
+    int WindowType, int ShowState, bool IsActive,
+    long TabId, int TabIndex, string CurrentUrl, string Title, bool Pinned,
+    string? LastActiveTime, string NavigationHistory);
 
 public class TabHistorianDb : IDisposable
 {
@@ -75,7 +77,9 @@ public class TabHistorianDb : IDisposable
         cmd.CommandText = $"""
             SELECT s.id, s.timestamp,
                    w.id, w.profile_name, w.profile_display_name, w.window_index,
-                   t.id, t.tab_index, t.current_url, t.title, t.pinned, t.navigation_history
+                   w.window_type, w.show_state, w.is_active,
+                   t.id, t.tab_index, t.current_url, t.title, t.pinned,
+                   t.last_active_time, t.navigation_history
             FROM tabs t
             JOIN windows w ON w.id = t.window_id
             JOIN snapshots s ON s.id = w.snapshot_id
@@ -92,11 +96,15 @@ public class TabHistorianDb : IDisposable
                 reader.GetInt64(2), reader.GetString(3),
                 reader.IsDBNull(4) ? reader.GetString(3) : reader.GetString(4),
                 reader.GetInt32(5),
-                reader.GetInt64(6), reader.GetInt32(7),
-                reader.GetString(8),
-                reader.IsDBNull(9) ? "" : reader.GetString(9),
-                reader.GetInt32(10) != 0,
-                reader.IsDBNull(11) ? "[]" : reader.GetString(11)));
+                reader.IsDBNull(6) ? 0 : reader.GetInt32(6),
+                reader.IsDBNull(7) ? 0 : reader.GetInt32(7),
+                !reader.IsDBNull(8) && reader.GetInt32(8) != 0,
+                reader.GetInt64(9), reader.GetInt32(10),
+                reader.GetString(11),
+                reader.IsDBNull(12) ? "" : reader.GetString(12),
+                reader.GetInt32(13) != 0,
+                reader.IsDBNull(14) ? null : reader.GetString(14),
+                reader.IsDBNull(15) ? "[]" : reader.GetString(15)));
         }
         return results;
     }

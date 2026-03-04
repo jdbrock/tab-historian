@@ -52,7 +52,8 @@ public class PickleReader
 
     public string ReadString16()
     {
-        int byteLen = ReadInt32();
+        int charCount = ReadInt32();
+        int byteLen = charCount * 2;
         if (byteLen < 0 || byteLen > _data.Length - _pos)
             return string.Empty;
 
