@@ -9,8 +9,11 @@ public record TabRow(
     long SnapshotId, string SnapshotTimestamp,
     long WindowId, string ProfileName, string ProfileDisplayName, int WindowIndex,
     int WindowType, int ShowState, bool IsActive,
+    int? X, int? Y, int? Width, int? Height,
+    int SelectedTabIndex, string? Workspace, string? AppName, string? UserTitle,
     long TabId, int TabIndex, string CurrentUrl, string Title, bool Pinned,
-    string? LastActiveTime, string NavigationHistory);
+    string? LastActiveTime, string? TabGroupToken, string? ExtensionAppId,
+    string NavigationHistory);
 
 public class TabHistorianDb : IDisposable
 {
@@ -78,8 +81,11 @@ public class TabHistorianDb : IDisposable
             SELECT s.id, s.timestamp,
                    w.id, w.profile_name, w.profile_display_name, w.window_index,
                    w.window_type, w.show_state, w.is_active,
+                   w.x, w.y, w.width, w.height,
+                   w.selected_tab_index, w.workspace, w.app_name, w.user_title,
                    t.id, t.tab_index, t.current_url, t.title, t.pinned,
-                   t.last_active_time, t.navigation_history
+                   t.last_active_time, t.tab_group_token, t.extension_app_id,
+                   t.navigation_history
             FROM tabs t
             JOIN windows w ON w.id = t.window_id
             JOIN snapshots s ON s.id = w.snapshot_id
@@ -99,12 +105,22 @@ public class TabHistorianDb : IDisposable
                 reader.IsDBNull(6) ? 0 : reader.GetInt32(6),
                 reader.IsDBNull(7) ? 0 : reader.GetInt32(7),
                 !reader.IsDBNull(8) && reader.GetInt32(8) != 0,
-                reader.GetInt64(9), reader.GetInt32(10),
-                reader.GetString(11),
-                reader.IsDBNull(12) ? "" : reader.GetString(12),
-                reader.GetInt32(13) != 0,
+                reader.IsDBNull(9) ? null : reader.GetInt32(9),
+                reader.IsDBNull(10) ? null : reader.GetInt32(10),
+                reader.IsDBNull(11) ? null : reader.GetInt32(11),
+                reader.IsDBNull(12) ? null : reader.GetInt32(12),
+                reader.IsDBNull(13) ? 0 : reader.GetInt32(13),
                 reader.IsDBNull(14) ? null : reader.GetString(14),
-                reader.IsDBNull(15) ? "[]" : reader.GetString(15)));
+                reader.IsDBNull(15) ? null : reader.GetString(15),
+                reader.IsDBNull(16) ? null : reader.GetString(16),
+                reader.GetInt64(17), reader.GetInt32(18),
+                reader.GetString(19),
+                reader.IsDBNull(20) ? "" : reader.GetString(20),
+                reader.GetInt32(21) != 0,
+                reader.IsDBNull(22) ? null : reader.GetString(22),
+                reader.IsDBNull(23) ? null : reader.GetString(23),
+                reader.IsDBNull(24) ? null : reader.GetString(24),
+                reader.IsDBNull(25) ? "[]" : reader.GetString(25)));
         }
         return results;
     }

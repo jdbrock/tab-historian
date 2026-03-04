@@ -34,11 +34,13 @@ public class SessionFileReader
     private static readonly DateTime WebKitEpoch = new(1601, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 
     private readonly ILogger<SessionFileReader> _logger;
+    private readonly VssShadowCopy _vss;
     private readonly SnssParser _parser = new();
 
-    public SessionFileReader(ILogger<SessionFileReader> logger)
+    public SessionFileReader(ILogger<SessionFileReader> logger, VssShadowCopy vss)
     {
         _logger = logger;
+        _vss = vss;
     }
 
     public List<ChromeWindow> ReadProfile(ChromeProfile profile)
@@ -70,12 +72,10 @@ public class SessionFileReader
             string tempFile = Path.Combine(Path.GetTempPath(), $"tabhistorian_{Guid.NewGuid()}.snss");
             try
             {
-                // Read-only copy: open source with read-only access, allow Chrome to keep writing
-                using (var source = new FileStream(sessionFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
-                using (var dest = new FileStream(tempFile, FileMode.Create, FileAccess.Write))
-                {
-                    source.CopyTo(dest);
-                }
+                // Copy the session file to temp. Chrome holds exclusive locks on current
+                // session files. Try normal file copy first, fall back to VSS shadow copy.
+                if (!TryCopyFile(sessionFile, tempFile))
+                    continue;
 
                 var windows = ParseSessionFile(tempFile, profile);
                 if (windows.Count > 0)
@@ -95,6 +95,59 @@ public class SessionFileReader
 
         _logger.LogDebug("No usable session files for profile {Profile}", profile.DisplayName);
         return [];
+    }
+
+    /// <summary>
+    /// Creates a VSS shadow copy for reading locked files. Call before reading profiles,
+    /// and dispose/delete after all profiles are read.
+    /// </summary>
+    public bool EnsureVssSnapshot(string chromeUserDataPath)
+    {
+        if (_vss.DevicePath != null)
+            return true; // already have one
+
+        if (_vss.Create(chromeUserDataPath))
+        {
+            _logger.LogInformation("Created VSS shadow copy for reading locked Chrome files");
+            return true;
+        }
+
+        _logger.LogWarning("Could not create VSS shadow copy — locked files will be skipped. Run elevated for full access.");
+        return false;
+    }
+
+    /// <summary>
+    /// Releases the VSS shadow copy.
+    /// </summary>
+    public void ReleaseVssSnapshot()
+    {
+        _vss.Delete();
+    }
+
+    private bool TryCopyFile(string source, string dest)
+    {
+        // Try normal file copy first
+        try
+        {
+            using var srcStream = new FileStream(source, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            using var dstStream = new FileStream(dest, FileMode.Create, FileAccess.Write);
+            srcStream.CopyTo(dstStream);
+            return true;
+        }
+        catch (IOException)
+        {
+            // File is exclusively locked — try VSS
+        }
+
+        // Fall back to VSS shadow copy
+        if (_vss.DevicePath != null && _vss.CopyFile(source, dest))
+        {
+            _logger.LogDebug("Read locked file via VSS: {File}", source);
+            return true;
+        }
+
+        _logger.LogWarning("Cannot read locked file (no VSS available): {File}", source);
+        return false;
     }
 
     private List<ChromeWindow> ParseSessionFile(string filePath, ChromeProfile profile)

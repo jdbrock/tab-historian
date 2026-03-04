@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:digitalinvestigation.wordpress.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:chromium.googlesource.com)",
+      "Bash(*)",
+      "Bash(timeout 20 dotnet run)",
+      "Bash(pip install sqlite-utils)",
+      "Bash(sqlite-utils query \"c:/Code/Projects/TabHistorian/src/TabHistorian/bin/Debug/net10.0/tabhistorian.db\" \"SELECT ''snapshots'' as tbl, COUNT\\(*\\) as cnt FROM snapshots UNION ALL SELECT ''windows'', COUNT\\(*\\) FROM windows UNION ALL SELECT ''tabs'', COUNT\\(*\\) FROM tabs\")",
+      "Bash(python3 -c \":*)",
+      "Bash(python -c \":*)",
+      "Bash(dotnet run -- \"../../src/TabHistorian.Viewer/app.ico\")",
+      "Bash(\"/c/Users/Joe/AppData/Local/Microsoft/WinGet/Links/sqlite3.exe\" \"/c/Users/Joe/OneDrive/Documents/TabHistorian/tabhistorian.db\" \"SELECT t.current_url, t.title FROM tabs t JOIN windows w ON t.window_id = w.id WHERE w.snapshot_id = 10 AND \\(t.current_url LIKE ''%apple.com%'' OR t.current_url LIKE ''%google.com%'' OR t.current_url LIKE ''%microsoft.com%''\\) ORDER BY t.current_url;\")"
+    ]
+  }
+}

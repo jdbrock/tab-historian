@@ -35,19 +35,30 @@ public class SnapshotService
 
         _logger.LogInformation("Taking snapshot across {Count} profiles", profiles.Count);
 
+        // Create a VSS shadow copy so we can read Chrome's locked session files.
+        // This requires elevation; if not elevated, locked files will be skipped.
+        _sessionReader.EnsureVssSnapshot(profiles[0].FullPath);
+
         var allWindows = new List<ChromeWindow>();
-        foreach (var profile in profiles)
+        try
         {
-            try
+            foreach (var profile in profiles)
             {
-                var windows = _sessionReader.ReadProfile(profile);
-                allWindows.AddRange(windows);
-                _logger.LogDebug("Profile {Name}: {Count} windows", profile.DisplayName, windows.Count);
+                try
+                {
+                    var windows = _sessionReader.ReadProfile(profile);
+                    allWindows.AddRange(windows);
+                    _logger.LogDebug("Profile {Name}: {Count} windows", profile.DisplayName, windows.Count);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to read profile {Name}, continuing with others", profile.DisplayName);
+                }
             }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to read profile {Name}, continuing with others", profile.DisplayName);
-            }
+        }
+        finally
+        {
+            _sessionReader.ReleaseVssSnapshot();
         }
 
         if (allWindows.Count == 0)

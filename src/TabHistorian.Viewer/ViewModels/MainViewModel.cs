@@ -1,7 +1,9 @@
 using System.Collections.ObjectModel;
 using System.Text.Json;
+using System.Windows;
 using System.Windows.Threading;
 using TabHistorian.Viewer.Data;
+using TabHistorian.Viewer.Services;
 
 namespace TabHistorian.Viewer.ViewModels;
 
@@ -13,6 +15,7 @@ public class MainViewModel : ViewModelBase, IDisposable
     private SnapshotInfo? _selectedSnapshot;
     private string _statusText = "";
     private string? _errorMessage;
+    private object? _selectedItem;
 
     public MainViewModel()
     {
@@ -66,6 +69,28 @@ public class MainViewModel : ViewModelBase, IDisposable
         set => SetField(ref _errorMessage, value);
     }
 
+    public object? SelectedItem
+    {
+        get => _selectedItem;
+        set
+        {
+            if (SetField(ref _selectedItem, value))
+            {
+                OnPropertyChanged(nameof(SelectedUrl));
+                OnPropertyChanged(nameof(HasSelectedUrl));
+            }
+        }
+    }
+
+    public string? SelectedUrl => SelectedItem switch
+    {
+        TabNode tab => tab.CurrentUrl,
+        NavEntryNode nav => nav.Url,
+        _ => null
+    };
+
+    public bool HasSelectedUrl => !string.IsNullOrEmpty(SelectedUrl);
+
     private void LoadSnapshots()
     {
         var snapshots = _db.GetSnapshots();
@@ -86,22 +111,11 @@ public class MainViewModel : ViewModelBase, IDisposable
         foreach (var node in tree)
             Results.Add(node);
 
-        int totalTabs = tree.Sum(s => s.Windows.Sum(w => w.Tabs.Count));
-        int totalWindows = tree.Sum(s => s.Windows.Count);
-        var profiles = tree.SelectMany(s => s.Windows).Select(w => w.ProfileDisplayName).Distinct().Count();
+        int totalTabs = tree.Sum(s => s.Profiles.Sum(p => p.Windows.Sum(w => w.Tabs.Count)));
+        int totalWindows = tree.Sum(s => s.Profiles.Sum(p => p.Windows.Count));
+        var profiles = tree.Sum(s => s.Profiles.Count);
 
         StatusText = $"{totalTabs} tabs in {totalWindows} windows across {profiles} profiles";
-
-        // Auto-expand when searching
-        if (query != null)
-        {
-            foreach (var snapshot in tree)
-            {
-                snapshot.IsExpanded = true;
-                foreach (var window in snapshot.Windows)
-                    window.IsExpanded = true;
-            }
-        }
     }
 
     private static List<SnapshotNode> BuildTree(List<TabRow> rows)
@@ -115,61 +129,165 @@ public class MainViewModel : ViewModelBase, IDisposable
             {
                 Timestamp = FormatTimestamp(first.SnapshotTimestamp),
                 WindowCount = snapshotGroup.Select(r => r.WindowId).Distinct().Count(),
-                TabCount = snapshotGroup.Count()
+                TabCount = snapshotGroup.Count(),
+                IsExpanded = true
             };
 
-            foreach (var windowGroup in snapshotGroup.GroupBy(r => r.WindowId))
+            // Group by profile
+            foreach (var profileGroup in snapshotGroup.GroupBy(r => r.ProfileName))
             {
-                var wFirst = windowGroup.First();
-                var windowNode = new WindowNode
+                var pFirst = profileGroup.First();
+                var profileNode = new ProfileNode
                 {
-                    ProfileDisplayName = wFirst.ProfileDisplayName,
-                    WindowIndex = wFirst.WindowIndex,
-                    TabCount = windowGroup.Count(),
-                    WindowTypeLabel = wFirst.WindowType switch { 1 => "popup", 2 => "app", _ => "" },
-                    ShowStateLabel = wFirst.ShowState switch { 2 => "minimized", 3 => "maximized", 4 => "fullscreen", _ => "" },
-                    IsActive = wFirst.IsActive
+                    ProfileName = pFirst.ProfileName,
+                    ProfileDisplayName = pFirst.ProfileDisplayName,
+                    WindowCount = profileGroup.Select(r => r.WindowId).Distinct().Count(),
+                    TabCount = profileGroup.Count(),
+                    IsExpanded = true
                 };
 
-                foreach (var tab in windowGroup)
+                foreach (var windowGroup in profileGroup.GroupBy(r => r.WindowId))
                 {
-                    var tabNode = new TabNode
+                    var wFirst = windowGroup.First();
+                    var tabNodes = new List<TabNode>();
+
+                    foreach (var tab in windowGroup)
                     {
-                        Title = tab.Title,
-                        CurrentUrl = tab.CurrentUrl,
-                        Pinned = tab.Pinned,
-                        LastActiveTime = FormatTimestamp(tab.LastActiveTime)
+                        var tabNode = new TabNode
+                        {
+                            Title = tab.Title,
+                            CurrentUrl = tab.CurrentUrl,
+                            Pinned = tab.Pinned,
+                            LastActiveTime = FormatTimestamp(tab.LastActiveTime),
+                            TabIndex = tab.TabIndex,
+                            TabGroupToken = tab.TabGroupToken,
+                            ExtensionAppId = tab.ExtensionAppId
+                        };
+
+                        // Parse navigation history JSON
+                        var navEntries = new List<NavEntryNode>();
+                        try
+                        {
+                            using var doc = JsonDocument.Parse(tab.NavigationHistory);
+                            foreach (var entry in doc.RootElement.EnumerateArray())
+                            {
+                                navEntries.Add(new NavEntryNode
+                                {
+                                    Url = entry.GetProperty("url").GetString() ?? "",
+                                    Title = entry.TryGetProperty("title", out var t) ? t.GetString() ?? "" : "",
+                                    Timestamp = entry.TryGetProperty("timestamp", out var ts) && ts.ValueKind == JsonValueKind.String
+                                        ? FormatTimestamp(ts.GetString()) : null,
+                                    HttpStatusCode = entry.TryGetProperty("httpStatus", out var hs) && hs.ValueKind == JsonValueKind.Number
+                                        ? hs.GetInt32() : 0,
+                                    Referrer = entry.TryGetProperty("referrer", out var r) ? r.GetString() : null,
+                                    OriginalRequestUrl = entry.TryGetProperty("originalRequestUrl", out var oru) ? oru.GetString() : null,
+                                    TransitionType = entry.TryGetProperty("transitionType", out var tt) ? tt.GetString() : null,
+                                    HasPostData = entry.TryGetProperty("hasPostData", out var hp) && hp.ValueKind == JsonValueKind.True
+                                });
+                            }
+                        }
+                        catch { /* malformed JSON, skip nav history */ }
+
+                        // Sort nav entries by timestamp DESC
+                        foreach (var nav in navEntries.OrderByDescending(n => n.Timestamp ?? ""))
+                            tabNode.NavEntries.Add(nav);
+
+                        tabNodes.Add(tabNode);
+                    }
+
+                    // Sort tabs by LastActiveTime DESC
+                    tabNodes.Sort((a, b) => string.Compare(b.LastActiveTime ?? "", a.LastActiveTime ?? "", StringComparison.Ordinal));
+
+                    var mostRecentTab = tabNodes.FirstOrDefault(t => t.LastActiveTime != null);
+
+                    var windowNode = new WindowNode
+                    {
+                        ProfileDisplayName = wFirst.ProfileDisplayName,
+                        ProfileName = wFirst.ProfileName,
+                        WindowIndex = wFirst.WindowIndex,
+                        TabCount = windowGroup.Count(),
+                        WindowTypeLabel = wFirst.WindowType switch { 1 => "popup", 2 => "app", _ => "" },
+                        ShowStateLabel = wFirst.ShowState switch { 2 => "minimized", 3 => "maximized", 4 => "fullscreen", _ => "" },
+                        IsActive = wFirst.IsActive,
+                        MostRecentTabTime = mostRecentTab?.LastActiveTime,
+                        X = wFirst.X,
+                        Y = wFirst.Y,
+                        Width = wFirst.Width,
+                        Height = wFirst.Height,
+                        SelectedTabIndex = wFirst.SelectedTabIndex,
+                        Workspace = wFirst.Workspace,
+                        AppName = wFirst.AppName,
+                        UserTitle = wFirst.UserTitle,
+                        IsExpanded = true
                     };
 
-                    // Parse navigation history JSON
-                    try
-                    {
-                        using var doc = JsonDocument.Parse(tab.NavigationHistory);
-                        foreach (var entry in doc.RootElement.EnumerateArray())
-                        {
-                            tabNode.NavEntries.Add(new NavEntryNode
-                            {
-                                Url = entry.GetProperty("url").GetString() ?? "",
-                                Title = entry.TryGetProperty("title", out var t) ? t.GetString() ?? "" : "",
-                                Timestamp = entry.TryGetProperty("timestamp", out var ts) && ts.ValueKind == JsonValueKind.String
-                                    ? FormatTimestamp(ts.GetString()) : null,
-                                HttpStatusCode = entry.TryGetProperty("httpStatus", out var hs) && hs.ValueKind == JsonValueKind.Number
-                                    ? hs.GetInt32() : 0
-                            });
-                        }
-                    }
-                    catch { /* malformed JSON, skip nav history */ }
+                    foreach (var tab in tabNodes)
+                        windowNode.Tabs.Add(tab);
 
-                    windowNode.Tabs.Add(tabNode);
+                    profileNode.Windows.Add(windowNode);
                 }
 
-                snapshotNode.Windows.Add(windowNode);
+                // Sort windows within profile by most recent tab DESC
+                var sortedWindows = profileNode.Windows
+                    .OrderByDescending(w => w.MostRecentTabTime ?? "")
+                    .ToList();
+                profileNode.Windows.Clear();
+                foreach (var w in sortedWindows)
+                    profileNode.Windows.Add(w);
+
+                snapshotNode.Profiles.Add(profileNode);
             }
+
+            // Sort profiles by most recent tab DESC
+            var sortedProfiles = snapshotNode.Profiles
+                .OrderByDescending(p => p.Windows.SelectMany(w => w.Tabs).Max(t => t.LastActiveTime ?? ""))
+                .ToList();
+            snapshotNode.Profiles.Clear();
+            foreach (var p in sortedProfiles)
+                snapshotNode.Profiles.Add(p);
+
+            snapshotNode.ProfileCount = snapshotNode.Profiles.Count;
 
             snapshots.Add(snapshotNode);
         }
 
+        // Load favicons asynchronously
+        _ = LoadFaviconsAsync(snapshots);
+
         return snapshots;
+    }
+
+    private static async Task LoadFaviconsAsync(List<SnapshotNode> snapshots)
+    {
+        var tabsByDomain = new Dictionary<string, List<TabNode>>();
+
+        foreach (var snapshot in snapshots)
+            foreach (var profile in snapshot.Profiles)
+                foreach (var window in profile.Windows)
+                    foreach (var tab in window.Tabs)
+                    {
+                        var domain = FaviconService.ExtractDomain(tab.CurrentUrl);
+                        if (domain == null) continue;
+                        if (!tabsByDomain.ContainsKey(domain))
+                            tabsByDomain[domain] = [];
+                        tabsByDomain[domain].Add(tab);
+                    }
+
+        // Fetch favicons in parallel, batched
+        var tasks = tabsByDomain.Select(async kvp =>
+        {
+            var favicon = await FaviconService.GetFaviconAsync(kvp.Key);
+            if (favicon != null)
+            {
+                await Application.Current.Dispatcher.InvokeAsync(() =>
+                {
+                    foreach (var tab in kvp.Value)
+                        tab.Favicon = favicon;
+                });
+            }
+        });
+
+        await Task.WhenAll(tasks);
     }
 
     private static string? FormatTimestamp(string? iso)
