@@ -4,6 +4,7 @@ using Microsoft.Data.Sqlite;
 namespace TabHistorian.Viewer.Data;
 
 public record SnapshotInfo(long Id, string Timestamp, int WindowCount, int TabCount);
+public record ProfileInfo(string ProfileName, string ProfileDisplayName);
 
 public record TabRow(
     long SnapshotId, string SnapshotTimestamp,
@@ -62,7 +63,27 @@ public class TabHistorianDb : IDisposable
         return results;
     }
 
-    public List<TabRow> SearchTabs(string? query, long? snapshotId)
+    public List<ProfileInfo> GetProfiles()
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT DISTINCT w.profile_name, w.profile_display_name
+            FROM windows w
+            ORDER BY w.profile_display_name
+            """;
+
+        var results = new List<ProfileInfo>();
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read())
+        {
+            results.Add(new ProfileInfo(
+                reader.GetString(0),
+                reader.IsDBNull(1) ? reader.GetString(0) : reader.GetString(1)));
+        }
+        return results;
+    }
+
+    public List<TabRow> SearchTabs(string? query, long? snapshotId, string? profileName = null)
     {
         using var cmd = _connection.CreateCommand();
         var conditions = new List<string>();
@@ -75,6 +96,11 @@ public class TabHistorianDb : IDisposable
         {
             conditions.Add("(t.title LIKE @q OR t.current_url LIKE @q OR t.navigation_history LIKE @q)");
             cmd.Parameters.AddWithValue("@q", $"%{query}%");
+        }
+        if (!string.IsNullOrWhiteSpace(profileName))
+        {
+            conditions.Add("w.profile_name = @profileName");
+            cmd.Parameters.AddWithValue("@profileName", profileName);
         }
 
         var where = conditions.Count > 0 ? "WHERE " + string.Join(" AND ", conditions) : "";

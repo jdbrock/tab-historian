@@ -16,6 +16,7 @@ public class MainViewModel : ViewModelBase, IDisposable
     private readonly DispatcherTimer _refreshDebounce;
     private string _searchText = "";
     private SnapshotInfo? _selectedSnapshot;
+    private ProfileInfo? _selectedProfile;
     private string _statusText = "";
     private string? _errorMessage;
     private object? _selectedItem;
@@ -54,11 +55,13 @@ public class MainViewModel : ViewModelBase, IDisposable
         _dbWatcher.EnableRaisingEvents = true;
 
         LoadSnapshots();
+        LoadProfiles();
         _lastSnapshotCount = Snapshots.Count;
         ExecuteSearch();
     }
 
     public ObservableCollection<SnapshotInfo> Snapshots { get; } = [];
+    public ObservableCollection<ProfileInfo> Profiles { get; } = [];
     public ObservableCollection<SnapshotNode> Results { get; } = [];
 
     public string SearchText
@@ -80,6 +83,16 @@ public class MainViewModel : ViewModelBase, IDisposable
         set
         {
             if (SetField(ref _selectedSnapshot, value))
+                ExecuteSearch();
+        }
+    }
+
+    public ProfileInfo? SelectedProfile
+    {
+        get => _selectedProfile;
+        set
+        {
+            if (SetField(ref _selectedProfile, value))
                 ExecuteSearch();
         }
     }
@@ -126,12 +139,21 @@ public class MainViewModel : ViewModelBase, IDisposable
             Snapshots.Add(s);
     }
 
+    private void LoadProfiles()
+    {
+        var profiles = _db.GetProfiles();
+        Profiles.Clear();
+        foreach (var p in profiles)
+            Profiles.Add(p);
+    }
+
     public void ExecuteSearch()
     {
         var query = string.IsNullOrWhiteSpace(SearchText) ? null : SearchText.Trim();
         var snapshotId = SelectedSnapshot?.Id;
+        var profileName = SelectedProfile?.ProfileName;
 
-        var rows = _db.SearchTabs(query, snapshotId);
+        var rows = _db.SearchTabs(query, snapshotId, profileName);
         var tree = BuildTree(rows);
 
         Results.Clear();
@@ -336,6 +358,7 @@ public class MainViewModel : ViewModelBase, IDisposable
                 Snapshots.Clear();
                 foreach (var s in snapshots)
                     Snapshots.Add(s);
+                LoadProfiles();
 
                 // Auto-select latest snapshot if no specific snapshot was chosen
                 if (SelectedSnapshot == null && Snapshots.Count > 0)
@@ -355,6 +378,7 @@ public class MainViewModel : ViewModelBase, IDisposable
     {
         SearchText = "";
         SelectedSnapshot = null;
+        SelectedProfile = null;
     }
 
     public void Dispose()

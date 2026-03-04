@@ -37,7 +37,7 @@
             </TextBlock>
         </Grid>
 
-        <!-- Snapshot filter -->
+        <!-- Filters -->
         <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,6,0,6">
             <TextBlock Text="Snapshot:" VerticalAlignment="Center" Margin="0,0,6,0"/>
             <ComboBox x:Name="SnapshotCombo" Width="350"
@@ -58,6 +58,12 @@
                     </DataTemplate>
                 </ComboBox.ItemTemplate>
             </ComboBox>
+            <TextBlock Text="Profile:" VerticalAlignment="Center" Margin="12,0,6,0"/>
+            <ComboBox x:Name="ProfileCombo" Width="200"
+                      ItemsSource="{Binding Profiles}"
+                      SelectedItem="{Binding SelectedProfile}"
+                      DisplayMemberPath="ProfileDisplayName"
+                      Padding="4"/>
             <Button Content="Clear" Margin="6,0,0,0" Padding="8,4" Click="ClearFilter_Click"/>
         </StackPanel>
 
