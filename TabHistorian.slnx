@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/TabHistorian.Viewer/TabHistorian.Viewer.csproj" />
+    <Project Path="src/TabHistorian.Web/TabHistorian.Web.csproj" />
     <Project Path="src/TabHistorian/TabHistorian.csproj" />
   </Folder>
 </Solution>
