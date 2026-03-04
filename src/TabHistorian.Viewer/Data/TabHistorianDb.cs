@@ -19,17 +19,19 @@ public class TabHistorianDb : IDisposable
 {
     private readonly SqliteConnection _connection;
 
+    public string DbPath { get; }
+
     public TabHistorianDb()
     {
         var defaultDir = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
             "TabHistorian");
-        var dbPath = Path.Combine(defaultDir, "tabhistorian.db");
+        DbPath = Path.Combine(defaultDir, "tabhistorian.db");
 
-        if (!File.Exists(dbPath))
-            throw new FileNotFoundException($"Database not found at {dbPath}. Run the TabHistorian service first.");
+        if (!File.Exists(DbPath))
+            throw new FileNotFoundException($"Database not found at {DbPath}. Run the TabHistorian service first.");
 
-        _connection = new SqliteConnection($"Data Source={dbPath};Mode=ReadOnly");
+        _connection = new SqliteConnection($"Data Source={DbPath};Mode=ReadOnly");
         _connection.Open();
     }
 

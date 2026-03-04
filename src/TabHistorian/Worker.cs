@@ -2,7 +2,7 @@ using TabHistorian.Services;
 
 namespace TabHistorian;
 
-public class Worker(SnapshotService snapshotService, IHostApplicationLifetime lifetime, ILogger<Worker> logger) : BackgroundService
+public class Worker(SnapshotService snapshotService, StorageService storage, IHostApplicationLifetime lifetime, ILogger<Worker> logger) : BackgroundService
 {
     protected override Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -14,6 +14,15 @@ public class Worker(SnapshotService snapshotService, IHostApplicationLifetime li
         catch (Exception ex)
         {
             logger.LogError(ex, "Snapshot failed");
+        }
+
+        try
+        {
+            storage.PruneSnapshots();
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Pruning failed");
         }
 
         lifetime.StopApplication();

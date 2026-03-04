@@ -59,6 +59,30 @@ dotnet run --project src/TabHistorian.Viewer
 - Select any item to see full details in the right panel
 - Open URLs directly in Chrome or Edge from the detail panel
 
+## 🗂️ Snapshot retention
+
+Old snapshots are automatically pruned after each run to keep the database manageable:
+
+| Age | Kept |
+|-----|------|
+| Today | All snapshots |
+| Yesterday | Oldest snapshot |
+| 2–7 days ago | Oldest snapshot |
+| 8–30 days ago | Oldest snapshot |
+| Older than 30 days | Oldest per calendar month |
+
+**Example** (today is March 4, 2026 with snapshots every 30 min):
+
+| Snapshot | Reason |
+|----------|--------|
+| Mar 4 00:00 – now | ✅ Today — keep all |
+| Mar 3 00:00 | ✅ Yesterday — oldest kept |
+| Feb 26 00:00 | ✅ Previous week — oldest kept |
+| Feb 4 00:00 | ✅ Previous month — oldest kept |
+| Jan 1 00:00 | ✅ January — oldest kept |
+| Dec 1 00:00 | ✅ December — oldest kept |
+| Nov 1, Oct 1, ... | ✅ One per month |
+
 ## 🔧 How it works
 
 1. **👤 Profile Discovery** — reads Chrome's `Local State` JSON to find all profile directories

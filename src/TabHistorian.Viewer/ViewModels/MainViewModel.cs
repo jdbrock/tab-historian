@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.IO;
 using System.Text.Json;
 using System.Windows;
 using System.Windows.Threading;
@@ -11,11 +12,14 @@ public class MainViewModel : ViewModelBase, IDisposable
 {
     private readonly TabHistorianDb _db;
     private readonly DispatcherTimer _debounceTimer;
+    private readonly FileSystemWatcher _dbWatcher;
+    private readonly DispatcherTimer _refreshDebounce;
     private string _searchText = "";
     private SnapshotInfo? _selectedSnapshot;
     private string _statusText = "";
     private string? _errorMessage;
     private object? _selectedItem;
+    private int _lastSnapshotCount;
 
     public MainViewModel()
     {
@@ -27,7 +31,30 @@ public class MainViewModel : ViewModelBase, IDisposable
             ExecuteSearch();
         };
 
+        // Watch for database changes (new snapshots from the service)
+        _refreshDebounce = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
+        _refreshDebounce.Tick += (_, _) =>
+        {
+            _refreshDebounce.Stop();
+            RefreshIfNewSnapshots();
+        };
+
+        _dbWatcher = new FileSystemWatcher(Path.GetDirectoryName(_db.DbPath)!, Path.GetFileName(_db.DbPath))
+        {
+            NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.Size
+        };
+        _dbWatcher.Changed += (_, _) =>
+        {
+            Application.Current.Dispatcher.BeginInvoke(() =>
+            {
+                _refreshDebounce.Stop();
+                _refreshDebounce.Start();
+            });
+        };
+        _dbWatcher.EnableRaisingEvents = true;
+
         LoadSnapshots();
+        _lastSnapshotCount = Snapshots.Count;
         ExecuteSearch();
     }
 
@@ -298,11 +325,41 @@ public class MainViewModel : ViewModelBase, IDisposable
             : iso;
     }
 
+    private void RefreshIfNewSnapshots()
+    {
+        try
+        {
+            var snapshots = _db.GetSnapshots();
+            if (snapshots.Count != _lastSnapshotCount)
+            {
+                _lastSnapshotCount = snapshots.Count;
+                Snapshots.Clear();
+                foreach (var s in snapshots)
+                    Snapshots.Add(s);
+
+                // Auto-select latest snapshot if no specific snapshot was chosen
+                if (SelectedSnapshot == null && Snapshots.Count > 0)
+                {
+                    SelectedSnapshot = Snapshots[0];
+                }
+                else
+                {
+                    ExecuteSearch();
+                }
+            }
+        }
+        catch { /* DB may be briefly locked during write */ }
+    }
+
     public void ClearSearch()
     {
         SearchText = "";
         SelectedSnapshot = null;
     }
 
-    public void Dispose() => _db.Dispose();
+    public void Dispose()
+    {
+        _dbWatcher.Dispose();
+        _db.Dispose();
+    }
 }

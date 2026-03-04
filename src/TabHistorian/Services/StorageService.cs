@@ -153,6 +153,113 @@ public class StorageService : IDisposable
         }
     }
 
+    /// <summary>
+    /// Prunes old snapshots according to the retention policy:
+    /// - Today: keep all
+    /// - Yesterday: keep oldest
+    /// - Previous week (2–7 days ago): keep oldest
+    /// - Previous month (8–30 days ago): keep oldest
+    /// - Older: keep oldest per calendar month
+    /// </summary>
+    public void PruneSnapshots()
+    {
+        var now = DateTime.UtcNow;
+        var today = now.Date;
+        var yesterday = today.AddDays(-1);
+        var weekAgo = today.AddDays(-7);
+        var monthAgo = today.AddDays(-30);
+
+        // Get all snapshots ordered by timestamp
+        var snapshots = new List<(long Id, DateTime Timestamp)>();
+        using (var cmd = _connection.CreateCommand())
+        {
+            cmd.CommandText = "SELECT id, timestamp FROM snapshots ORDER BY timestamp";
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                var id = reader.GetInt64(0);
+                var ts = DateTime.Parse(reader.GetString(1), null, System.Globalization.DateTimeStyles.RoundtripKind);
+                snapshots.Add((id, ts));
+            }
+        }
+
+        if (snapshots.Count == 0) return;
+
+        var toKeep = new HashSet<long>();
+
+        foreach (var (id, ts) in snapshots)
+        {
+            var date = ts.Date;
+
+            if (date >= today)
+            {
+                // Today: keep all
+                toKeep.Add(id);
+            }
+        }
+
+        // Yesterday: keep oldest
+        KeepOldest(snapshots.Where(s => s.Timestamp.Date >= yesterday && s.Timestamp.Date < today), toKeep);
+
+        // Previous week (2–7 days ago): keep oldest
+        KeepOldest(snapshots.Where(s => s.Timestamp.Date >= weekAgo && s.Timestamp.Date < yesterday), toKeep);
+
+        // Previous month (8–30 days ago): keep oldest
+        KeepOldest(snapshots.Where(s => s.Timestamp.Date >= monthAgo && s.Timestamp.Date < weekAgo), toKeep);
+
+        // Older: keep oldest per calendar month
+        var olderSnapshots = snapshots.Where(s => s.Timestamp.Date < monthAgo);
+        foreach (var monthGroup in olderSnapshots.GroupBy(s => new { s.Timestamp.Year, s.Timestamp.Month }))
+        {
+            KeepOldest(monthGroup, toKeep);
+        }
+
+        // Delete snapshots not in the keep set
+        var toDelete = snapshots.Where(s => !toKeep.Contains(s.Id)).Select(s => s.Id).ToList();
+
+        if (toDelete.Count == 0)
+        {
+            _logger.LogDebug("No snapshots to prune");
+            return;
+        }
+
+        using var transaction = _connection.BeginTransaction();
+        try
+        {
+            foreach (var id in toDelete)
+            {
+                DeleteSnapshot(id);
+            }
+
+            transaction.Commit();
+            _logger.LogInformation("Pruned {Count} old snapshots, kept {Kept}", toDelete.Count, toKeep.Count);
+        }
+        catch
+        {
+            transaction.Rollback();
+            throw;
+        }
+    }
+
+    private static void KeepOldest(IEnumerable<(long Id, DateTime Timestamp)> snapshots, HashSet<long> toKeep)
+    {
+        var oldest = snapshots.OrderBy(s => s.Timestamp).FirstOrDefault();
+        if (oldest.Id != 0)
+            toKeep.Add(oldest.Id);
+    }
+
+    private void DeleteSnapshot(long snapshotId)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = """
+            DELETE FROM tabs WHERE window_id IN (SELECT id FROM windows WHERE snapshot_id = @sid);
+            DELETE FROM windows WHERE snapshot_id = @sid;
+            DELETE FROM snapshots WHERE id = @sid;
+            """;
+        cmd.Parameters.AddWithValue("@sid", snapshotId);
+        cmd.ExecuteNonQuery();
+    }
+
     public void Dispose()
     {
         _connection.Dispose();
