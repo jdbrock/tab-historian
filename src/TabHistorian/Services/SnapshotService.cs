@@ -9,17 +9,20 @@ public class SnapshotService
 {
     private readonly ChromeProfileDiscovery _profileDiscovery;
     private readonly SessionFileReader _sessionReader;
+    private readonly SyncedSessionReader _syncedSessionReader;
     private readonly StorageService _storage;
     private readonly ILogger<SnapshotService> _logger;
 
     public SnapshotService(
         ChromeProfileDiscovery profileDiscovery,
         SessionFileReader sessionReader,
+        SyncedSessionReader syncedSessionReader,
         StorageService storage,
         ILogger<SnapshotService> logger)
     {
         _profileDiscovery = profileDiscovery;
         _sessionReader = sessionReader;
+        _syncedSessionReader = syncedSessionReader;
         _storage = storage;
         _logger = logger;
     }
@@ -59,6 +62,23 @@ public class SnapshotService
         finally
         {
             _sessionReader.ReleaseVssSnapshot();
+        }
+
+        // Read synced tabs from other devices
+        try
+        {
+            var syncedWindows = _syncedSessionReader.ReadSyncedSessions();
+            if (syncedWindows.Count > 0)
+            {
+                allWindows.AddRange(syncedWindows);
+                int syncedTabs = syncedWindows.Sum(w => w.Tabs.Count);
+                _logger.LogInformation("Added {Windows} synced windows with {Tabs} tabs from other devices",
+                    syncedWindows.Count, syncedTabs);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to read synced sessions, continuing without them");
         }
 
         if (allWindows.Count == 0)

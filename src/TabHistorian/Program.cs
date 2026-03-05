@@ -28,6 +28,7 @@ try
     builder.Services.AddSingleton<VssShadowCopy>();
     builder.Services.AddSingleton<SessionFileReader>();
     builder.Services.AddSingleton<StorageService>();
+    builder.Services.AddSingleton<SyncedSessionReader>();
     builder.Services.AddSingleton<SnapshotService>();
     builder.Services.AddHostedService<Worker>();
 

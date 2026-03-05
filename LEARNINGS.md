@@ -105,3 +105,75 @@ ID 32 - SetWindowVisibleOnAllWorkspaces: int32 windowId + bool
 - Copy to temp before parsing — never read in place
 - `Local State` JSON → `profile.info_cache` has profile directories as keys, `name` field = display name
 - Profiles on this machine: Default (Personal), Profile 2 (Trickle), Profile 5 (Vengeful Spirit), Profile 6 (X), Profile 7 (Kalopsia)
+
+## Chrome Sync Data (LevelDB + Protobuf)
+
+### LevelDB Reading
+- Chrome's Sync Data LevelDB lives at `<Profile>/Sync Data/LevelDB/` (inside the Default profile, NOT at the User Data root)
+- Chrome LevelDB uses Snappy compression — need `Snappier` NuGet package
+- **Off-the-shelf LevelDB readers all failed**: IronLeveldb (too old, crashes on MANIFEST), LevelDB.Standard (native DLL lacks Snappy), RocksDbSharp (incompatible on-disk format)
+- Custom `LevelDbReader.cs` reads .ldb SSTable files and .log WAL files directly
+- Copy entire LevelDB dir to temp before reading — Chrome holds LOCK file exclusively
+- Use `FileShare.ReadWrite | FileShare.Delete` when copying (skip files Chrome locks exclusively)
+- LevelDB key format: `sessions-dt-<storage_key>` — iterate with this prefix
+- LevelDB internal key: user_key + 8-byte suffix `(sequence_number << 8 | type)` — strip the suffix
+- Deduplicate by sequence number (higher wins), respect deletion markers (type == 0)
+
+### Protobuf Parsing
+
+#### Wire Type Validation — CRITICAL
+- **Always check wire type before reading a field value.** Chrome sometimes serializes fields with unexpected wire types (e.g., a bool field as length-delimited).
+- Pattern: `case FieldX when wire == 0:` for varints, `case FieldY when wire == 2:` for strings/messages
+- On wire type mismatch, fall through to `default: reader.SkipField(wire)`
+- Without this, the parser reads wrong bytes and desyncs, producing cascading "Unknown wire type" errors
+
+#### SessionSpecifics Proto
+```
+Field 1: session_tag (string)
+Field 2: header (SessionHeader message)
+Field 3: tab (SessionTab message)
+Field 4: tab_node_id (int32) — DO NOT use for tab lookup
+```
+
+#### SessionHeader Proto
+```
+Field 2: window (repeated SessionWindow message)
+Field 3: client_name (string) — device display name
+```
+
+#### SessionWindow Proto
+```
+Field 1: window_id (int32)
+Field 2: selected_tab_index (int32)
+Field 3: browser_type (enum)
+Field 4: tab (repeated int32) — these are tab_id values, NOT tab_node_ids
+```
+
+#### SessionTab Proto — FIELD NUMBERS DIFFER FROM OLD DOCS
+```
+Field 1:  tab_id (int32) — the key used by SessionWindow.tab
+Field 2:  window_id (int32)
+Field 3:  tab_visual_index (int32)
+Field 4:  current_navigation_index (int32)
+Field 5:  pinned (bool)              ← NOT field 7!
+Field 6:  extension_app_id (string)  ← NOT field 8!
+Field 7:  navigation (repeated TabNavigation)  ← NOT field 6!
+Field 14: last_active_time_unix_epoch_millis (int64)
+```
+- **Many online references and older Chrome versions show pinned=7, navigation=6, extension_app_id=8 — these are WRONG for modern Chrome.**
+- Verified against `chromium.googlesource.com` canonical proto definition.
+
+#### TabNavigation Proto
+```
+Field 2:  virtual_url (string)
+Field 3:  referrer (string)
+Field 4:  title (string)
+Field 6:  page_transition (int32)
+Field 9:  timestamp_msec (int64)
+Field 15: http_status_code (int32)
+```
+
+### Key Gotchas
+1. **Tab lookup key**: `SessionWindow.tab` values match `SessionTab.tab_id` (field 1), NOT `SessionSpecifics.tab_node_id` (field 4). Using tab_node_id produces zero matches.
+2. **Protobuf group wire types**: Chrome data contains deprecated group wire types (3=start group, 4=end group). The ProtobufReader.SkipField must handle these or parsing fails.
+3. **Synced device profiles**: Use `synced:<session_tag>` as the stable profile name and `Remote: <client_name>` as the display name. Synced tabs flow through existing ChromeWindow/ChromeTab/NavigationEntry models with no schema changes.
