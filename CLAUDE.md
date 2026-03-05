@@ -30,9 +30,12 @@
 
 ## Project Structure
 ```
+src/TabHistorian.Common/         — Shared settings loader + read-only DB access
 src/TabHistorian/
 ├── Program.cs / Worker.cs       — Entry point + background service
 ├── Models/                      — Snapshot, ChromeWindow, ChromeTab, NavigationEntry
 ├── Services/                    — ProfileDiscovery, SessionFileReader, SnapshotService, StorageService
 └── Parsing/                     — SnssParser, PickleReader
+src/TabHistorian.Viewer/         — WPF desktop app
+src/TabHistorian.Web/            — ASP.NET minimal API + Next.js SPA (frontend/)
 ```

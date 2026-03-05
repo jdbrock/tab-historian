@@ -19,7 +19,7 @@ if %errorlevel% equ 0 (
 
 schtasks /create ^
     /tn "TabHistorian" ^
-    /tr "\"%~dp0publish\TabHistorian\TabHistorian.exe\"" ^
+    /tr "\"%~dp0src\TabHistorian\bin\TabHistorian.exe\"" ^
     /sc minute /mo 30 ^
     /rl highest ^
     /f

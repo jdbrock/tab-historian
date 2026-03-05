@@ -270,15 +270,34 @@ public class StorageService : IDisposable
             return;
         }
 
+        var dbSize = new FileInfo(_settings.ResolvedDatabasePath).Length;
+        _logger.LogInformation("Starting database backup ({DbSize:F1} MB) to {Path}",
+            dbSize / (1024.0 * 1024.0), backupPath);
+
         Directory.CreateDirectory(backupDir);
 
-        // Use SQLite's backup API via VACUUM INTO for a consistent copy
-        using var cmd = _connection.CreateCommand();
-        cmd.CommandText = "VACUUM INTO @path";
-        cmd.Parameters.AddWithValue("@path", backupPath);
-        cmd.ExecuteNonQuery();
+        try
+        {
+            // Use SQLite's backup API via VACUUM INTO for a consistent copy
+            using var cmd = _connection.CreateCommand();
+            cmd.CommandText = "VACUUM INTO @path";
+            cmd.Parameters.AddWithValue("@path", backupPath);
+            cmd.ExecuteNonQuery();
 
-        _logger.LogInformation("Database backed up to {Path}", backupPath);
+            var backupSize = new FileInfo(backupPath).Length;
+            _logger.LogInformation("Database backup complete ({BackupSize:F1} MB): {Path}",
+                backupSize / (1024.0 * 1024.0), backupPath);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Database backup failed, cleaning up partial file: {Path}", backupPath);
+            try { File.Delete(backupPath); }
+            catch (Exception cleanupEx)
+            {
+                _logger.LogWarning(cleanupEx, "Failed to clean up partial backup file: {Path}", backupPath);
+            }
+            throw;
+        }
     }
 
     public void Dispose()

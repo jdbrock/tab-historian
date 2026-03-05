@@ -14,7 +14,9 @@ A .NET tool that snapshots all Chrome tabs across every window and profile, stor
 | Project | Description |
 |---------|-------------|
 | `TabHistorian` | CLI tool — discovers Chrome profiles, parses SNSS session files, saves a snapshot to SQLite, then exits. Designed to run via Task Scheduler. |
-| `TabHistorian.Viewer` | WPF desktop app — search and browse tab history in a tree view (Snapshot > Profile > Window > Tab > Navigation History) with detail panel, favicons, and open-in-browser buttons |
+| `TabHistorian.Common` | Shared library — settings loader and read-only database access, referenced by all other projects. |
+| `TabHistorian.Viewer` | WPF desktop app — search and browse tab history in a tree view (Snapshot > Profile > Window > Tab > Navigation History) with detail panel, favicons, and open-in-browser buttons. |
+| `TabHistorian.Web` | ASP.NET minimal API + Next.js SPA — dark-themed web frontend with live search, infinite scroll, and hierarchical explorer. Listens on port 17000. |
 
 ## ⚙️ Requirements
 
@@ -31,21 +33,29 @@ A .NET tool that snapshots all Chrome tabs across every window and profile, stor
 dotnet run --project src/TabHistorian
 ```
 
-Takes a single snapshot and exits. Run elevated (as administrator) to read Chrome's locked session files via VSS. The database is stored at:
+Takes a single snapshot and exits. Run elevated (as administrator) to read Chrome's locked session files via VSS.
 
+### 🔧 Configuration
+
+Settings are stored in `%USERPROFILE%\Documents\TabHistorian\settings.json` (created with defaults on first run):
+
+```json
+{
+  "databasePath": "tabhistorian.db",
+  "backupDirectory": "backups"
+}
 ```
-%USERPROFILE%\Documents\TabHistorian\tabhistorian.db
-```
+
+Relative paths resolve against the settings directory. Absolute paths (including UNC paths with forward slashes) are used as-is.
 
 ### ⏰ Scheduling with Task Scheduler
 
 To take automatic snapshots every 30 minutes:
 
-1. Publish the project: `dotnet publish src/TabHistorian -c Release -o publish/TabHistorian`
-2. Open Task Scheduler and create a new task:
-   - **General**: Run with highest privileges
-   - **Trigger**: On a schedule, repeat every 30 minutes indefinitely
-   - **Action**: Start `publish\TabHistorian\TabHistorian.exe`
+1. Build the project: `dotnet build src/TabHistorian`
+2. Run `RegisterScheduledTask.bat` as Administrator
+
+Or manually create a task pointing at `src\TabHistorian\bin\TabHistorian.exe` with highest privileges, repeating every 30 minutes.
 
 ### 🔍 Running the viewer
 
@@ -96,9 +106,13 @@ Chrome stores session state as a binary command log. Each command updates a piec
 
 Key implementation details are documented in [LEARNINGS.md](LEARNINGS.md).
 
+## 💾 Database backups
+
+The database is automatically backed up daily (via `VACUUM INTO`) to the configured backup directory. Backups are named `tabhistorian-YYYY-MM-DD.db` and only one is created per day.
+
 ## 🛡️ Safety
 
 - ✅ **All Chrome file access is strictly read-only** — files are read via VSS shadow copies or copied to temp before parsing
 - ✅ VSS shadow copies are read-only, point-in-time snapshots — no risk of data loss or interference with Chrome
-- ✅ The SQLite database is opened read-only by the Viewer
+- ✅ The SQLite database is opened read-only by the Viewer and Web frontend
 - ✅ Zero writes to any Chrome directory, ever

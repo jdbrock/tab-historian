@@ -4,7 +4,10 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <OutputType>WinExe</OutputType>
+    <OutputType>Exe</OutputType>
+    <OutputPath>bin\</OutputPath>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
     <UserSecretsId>dotnet-TabHistorian-b8086bfc-ad9f-4124-bc53-89093602f603</UserSecretsId>
   </PropertyGroup>
 
