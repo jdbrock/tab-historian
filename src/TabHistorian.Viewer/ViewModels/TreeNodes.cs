@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Text.Json;
 using System.Windows.Media.Imaging;
 
 namespace TabHistorian.Viewer.ViewModels;
@@ -18,7 +19,19 @@ public class SnapshotNode : ViewModelBase
     public bool IsExpanded
     {
         get => _isExpanded;
-        set => SetField(ref _isExpanded, value);
+        set
+        {
+            if (SetField(ref _isExpanded, value))
+            {
+                // Cascade: expand/collapse all profiles and their windows
+                foreach (var profile in Profiles)
+                {
+                    profile.IsExpanded = value;
+                    foreach (var window in profile.Windows)
+                        window.IsExpanded = value;
+                }
+            }
+        }
     }
 }
 
@@ -89,12 +102,26 @@ public class TabNode : ViewModelBase
 {
     private bool _isExpanded;
     private BitmapImage? _favicon;
+    private bool _navEntriesLoaded;
 
     public string Title { get; init; } = "";
     public string CurrentUrl { get; init; } = "";
     public bool Pinned { get; init; }
     public string? LastActiveTime { get; init; }
     public ObservableCollection<NavEntryNode> NavEntries { get; } = [];
+
+    /// <summary>Raw JSON stored for lazy parsing on expand.</summary>
+    internal string? NavigationHistoryJson
+    {
+        get;
+        init
+        {
+            field = value;
+            // Add placeholder so WPF shows the expander arrow
+            if (!string.IsNullOrEmpty(value) && NavEntries.Count == 0)
+                NavEntries.Add(new NavEntryNode { Url = "Loading..." });
+        }
+    }
 
     // Detail view properties
     public int TabIndex { get; init; }
@@ -121,7 +148,53 @@ public class TabNode : ViewModelBase
     public bool IsExpanded
     {
         get => _isExpanded;
-        set => SetField(ref _isExpanded, value);
+        set
+        {
+            if (SetField(ref _isExpanded, value) && value)
+                EnsureNavEntriesLoaded();
+        }
+    }
+
+    internal void EnsureNavEntriesLoaded()
+    {
+        if (_navEntriesLoaded || string.IsNullOrEmpty(NavigationHistoryJson))
+            return;
+        _navEntriesLoaded = true;
+
+        try
+        {
+            NavEntries.Clear(); // remove placeholder
+            using var doc = JsonDocument.Parse(NavigationHistoryJson);
+            var entries = new List<NavEntryNode>();
+            foreach (var entry in doc.RootElement.EnumerateArray())
+            {
+                entries.Add(new NavEntryNode
+                {
+                    Url = entry.GetProperty("url").GetString() ?? "",
+                    Title = entry.TryGetProperty("title", out var t) ? t.GetString() ?? "" : "",
+                    Timestamp = entry.TryGetProperty("timestamp", out var ts) && ts.ValueKind == JsonValueKind.String
+                        ? FormatTimestamp(ts.GetString()) : null,
+                    HttpStatusCode = entry.TryGetProperty("httpStatus", out var hs) && hs.ValueKind == JsonValueKind.Number
+                        ? hs.GetInt32() : 0,
+                    Referrer = entry.TryGetProperty("referrer", out var r) ? r.GetString() : null,
+                    OriginalRequestUrl = entry.TryGetProperty("originalRequestUrl", out var oru) ? oru.GetString() : null,
+                    TransitionType = entry.TryGetProperty("transitionType", out var tt) ? tt.GetString() : null,
+                    HasPostData = entry.TryGetProperty("hasPostData", out var hp) && hp.ValueKind == JsonValueKind.True
+                });
+            }
+
+            foreach (var nav in entries.OrderByDescending(n => n.Timestamp ?? ""))
+                NavEntries.Add(nav);
+        }
+        catch { /* malformed JSON */ }
+    }
+
+    private static string? FormatTimestamp(string? iso)
+    {
+        if (string.IsNullOrEmpty(iso)) return null;
+        return DateTime.TryParse(iso, out var dt)
+            ? dt.ToLocalTime().ToString("yyyy-MM-dd HH:mm")
+            : iso;
     }
 }
 

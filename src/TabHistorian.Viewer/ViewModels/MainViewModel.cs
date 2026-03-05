@@ -1,6 +1,5 @@
 using System.Collections.ObjectModel;
 using System.IO;
-using System.Text.Json;
 using System.Windows;
 using System.Windows.Threading;
 using TabHistorian.Common;
@@ -57,6 +56,7 @@ public class MainViewModel : ViewModelBase, IDisposable
         LoadSnapshots();
         LoadProfiles();
         _lastSnapshotCount = Snapshots.Count;
+
         ExecuteSearch();
     }
 
@@ -173,13 +173,14 @@ public class MainViewModel : ViewModelBase, IDisposable
 
         foreach (var snapshotGroup in rows.GroupBy(r => r.SnapshotId))
         {
+            var isFirstSnapshot = snapshots.Count == 0;
             var first = snapshotGroup.First();
             var snapshotNode = new SnapshotNode
             {
                 Timestamp = FormatTimestamp(first.SnapshotTimestamp),
                 WindowCount = snapshotGroup.Select(r => r.WindowId).Distinct().Count(),
                 TabCount = snapshotGroup.Count(),
-                IsExpanded = true
+                IsExpanded = isFirstSnapshot
             };
 
             // Group by profile
@@ -192,7 +193,7 @@ public class MainViewModel : ViewModelBase, IDisposable
                     ProfileDisplayName = pFirst.ProfileDisplayName,
                     WindowCount = profileGroup.Select(r => r.WindowId).Distinct().Count(),
                     TabCount = profileGroup.Count(),
-                    IsExpanded = true
+                    IsExpanded = isFirstSnapshot
                 };
 
                 foreach (var windowGroup in profileGroup.GroupBy(r => r.WindowId))
@@ -210,36 +211,9 @@ public class MainViewModel : ViewModelBase, IDisposable
                             LastActiveTime = FormatTimestamp(tab.LastActiveTime),
                             TabIndex = tab.TabIndex,
                             TabGroupToken = tab.TabGroupToken,
-                            ExtensionAppId = tab.ExtensionAppId
+                            ExtensionAppId = tab.ExtensionAppId,
+                            NavigationHistoryJson = tab.NavigationHistory
                         };
-
-                        // Parse navigation history JSON
-                        var navEntries = new List<NavEntryNode>();
-                        try
-                        {
-                            using var doc = JsonDocument.Parse(tab.NavigationHistory);
-                            foreach (var entry in doc.RootElement.EnumerateArray())
-                            {
-                                navEntries.Add(new NavEntryNode
-                                {
-                                    Url = entry.GetProperty("url").GetString() ?? "",
-                                    Title = entry.TryGetProperty("title", out var t) ? t.GetString() ?? "" : "",
-                                    Timestamp = entry.TryGetProperty("timestamp", out var ts) && ts.ValueKind == JsonValueKind.String
-                                        ? FormatTimestamp(ts.GetString()) : null,
-                                    HttpStatusCode = entry.TryGetProperty("httpStatus", out var hs) && hs.ValueKind == JsonValueKind.Number
-                                        ? hs.GetInt32() : 0,
-                                    Referrer = entry.TryGetProperty("referrer", out var r) ? r.GetString() : null,
-                                    OriginalRequestUrl = entry.TryGetProperty("originalRequestUrl", out var oru) ? oru.GetString() : null,
-                                    TransitionType = entry.TryGetProperty("transitionType", out var tt) ? tt.GetString() : null,
-                                    HasPostData = entry.TryGetProperty("hasPostData", out var hp) && hp.ValueKind == JsonValueKind.True
-                                });
-                            }
-                        }
-                        catch { /* malformed JSON, skip nav history */ }
-
-                        // Sort nav entries by timestamp DESC
-                        foreach (var nav in navEntries.OrderByDescending(n => n.Timestamp ?? ""))
-                            tabNode.NavEntries.Add(nav);
 
                         tabNodes.Add(tabNode);
                     }
@@ -267,7 +241,7 @@ public class MainViewModel : ViewModelBase, IDisposable
                         Workspace = wFirst.Workspace,
                         AppName = wFirst.AppName,
                         UserTitle = wFirst.UserTitle,
-                        IsExpanded = true
+                        IsExpanded = isFirstSnapshot
                     };
 
                     foreach (var tab in tabNodes)
