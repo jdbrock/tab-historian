@@ -20,7 +20,7 @@ public class TabHistorianSettings
     public static TabHistorianSettings Load()
     {
         var settingsDir = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
+            Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
             "TabHistorian");
         Directory.CreateDirectory(settingsDir);
 

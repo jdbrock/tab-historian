@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Scalar.AspNetCore;
 using TabHistorian.Common;
 
@@ -31,21 +32,21 @@ api.MapGet("/tabs", (TabHistorianDb db, string? q, long? snapshotId, string? pro
     var totalCount = db.CountTabs(q, snapshotId, profile);
     var rows = db.SearchTabs(q, snapshotId, profile, offset, size);
 
-    var items = rows.Select(r => new
+    var items = rows.Select(r => new TabResult
     {
-        r.SnapshotId,
-        r.SnapshotTimestamp,
-        r.WindowId,
-        r.ProfileName,
-        r.ProfileDisplayName,
-        r.WindowIndex,
-        r.TabId,
-        r.TabIndex,
-        r.CurrentUrl,
-        r.Title,
-        r.Pinned,
-        r.LastActiveTime,
-        NavigationHistory = JsonSerializer.Deserialize<JsonElement>(r.NavigationHistory)
+        SnapshotId = r.SnapshotId,
+        SnapshotTimestamp = r.SnapshotTimestamp,
+        WindowId = r.WindowId,
+        ProfileName = r.ProfileName,
+        ProfileDisplayName = r.ProfileDisplayName,
+        WindowIndex = r.WindowIndex,
+        TabId = r.TabId,
+        TabIndex = r.TabIndex,
+        CurrentUrl = r.CurrentUrl,
+        Title = r.Title,
+        Pinned = r.Pinned,
+        LastActiveTime = r.LastActiveTime,
+        NavigationHistory = r.NavigationHistory
     });
 
     return new { items, page = p, pageSize = size, totalCount };
@@ -54,3 +55,36 @@ api.MapGet("/tabs", (TabHistorianDb db, string? q, long? snapshotId, string? pro
 app.MapFallbackToFile("index.html");
 
 app.Run();
+
+record TabResult
+{
+    public long SnapshotId { get; init; }
+    public string? SnapshotTimestamp { get; init; }
+    public long WindowId { get; init; }
+    public string? ProfileName { get; init; }
+    public string? ProfileDisplayName { get; init; }
+    public int WindowIndex { get; init; }
+    public long TabId { get; init; }
+    public int TabIndex { get; init; }
+    public string? CurrentUrl { get; init; }
+    public string? Title { get; init; }
+    public bool Pinned { get; init; }
+    public string? LastActiveTime { get; init; }
+
+    [JsonConverter(typeof(RawJsonConverter))]
+    public string? NavigationHistory { get; init; }
+}
+
+class RawJsonConverter : JsonConverter<string>
+{
+    public override string? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+        => reader.GetString();
+
+    public override void Write(Utf8JsonWriter writer, string? value, JsonSerializerOptions options)
+    {
+        if (string.IsNullOrEmpty(value))
+            writer.WriteNullValue();
+        else
+            writer.WriteRawValue(value);
+    }
+}

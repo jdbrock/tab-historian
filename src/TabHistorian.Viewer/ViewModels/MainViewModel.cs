@@ -24,7 +24,7 @@ public class MainViewModel : ViewModelBase, IDisposable
     public MainViewModel()
     {
         _db = new TabHistorianDb(TabHistorianSettings.Load());
-        _debounceTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(100) };
+        _debounceTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
         _debounceTimer.Tick += (_, _) =>
         {
             _debounceTimer.Stop();
