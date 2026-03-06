@@ -16,7 +16,7 @@ if %errorlevel% equ 0 (
 
 schtasks /create ^
     /tn "TabHistorian" ^
-    /tr "powershell.exe -WindowStyle Hidden -Command & '%~dp0src\TabHistorian\bin\TabHistorian.exe'" ^
+    /tr "\"%~dp0src\TabHistorian\bin\TabHistorian.exe\"" ^
     /sc minute /mo 5 ^
     /rl highest ^
     /f
