@@ -1,5 +1,6 @@
 "use client";
 
+import { ExternalLink } from "lucide-react";
 import { useTabEvents } from "@/lib/hooks";
 import { faviconUrl, formatTimestamp, cleanTitle } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
@@ -58,6 +59,17 @@ function StateDelta({ raw }: { raw: string }) {
           <span className="text-sm truncate">
             {title ? cleanTitle(title) : url}
           </span>
+          {url && (
+            <a
+              href={url}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              className="text-muted-foreground hover:text-foreground shrink-0"
+            >
+              <ExternalLink className="h-3.5 w-3.5" />
+            </a>
+          )}
         </div>
       )}
       {url && (
