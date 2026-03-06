@@ -9,7 +9,7 @@ interface SearchBoxProps {
   debounceMs?: number;
 }
 
-export function SearchBox({ onQueryChange, debounceMs = 300 }: SearchBoxProps) {
+export function SearchBox({ onQueryChange, debounceMs = 100 }: SearchBoxProps) {
   const [value, setValue] = useState("");
 
   useEffect(() => {
