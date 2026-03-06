@@ -10,16 +10,13 @@ if %errorlevel% neq 0 (
 
 schtasks /query /tn "TabHistorian" >nul 2>&1
 if %errorlevel% equ 0 (
-    echo TabHistorian scheduled task already exists. No changes made.
-    echo To re-create it, delete the existing task first:
-    echo   schtasks /delete /tn "TabHistorian" /f
-    pause
-    exit /b 0
+    echo Removing existing TabHistorian scheduled task...
+    schtasks /delete /tn "TabHistorian" /f >nul 2>&1
 )
 
 schtasks /create ^
     /tn "TabHistorian" ^
-    /tr "\"%~dp0src\TabHistorian\bin\TabHistorian.exe\"" ^
+    /tr "powershell.exe -WindowStyle Hidden -Command & '%~dp0src\TabHistorian\bin\TabHistorian.exe'" ^
     /sc minute /mo 5 ^
     /rl highest ^
     /f

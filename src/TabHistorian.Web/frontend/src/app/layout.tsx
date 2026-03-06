@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "TabHistorian",
+  title: "Tab Historian",
   description: "Browse your Chrome tab history",
 };
 
