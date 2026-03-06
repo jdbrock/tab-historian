@@ -1,0 +1,13 @@
+{
+  "manifest_version": 3,
+  "name": "Wake All Tabs",
+  "version": "1.0",
+  "description": "Activates all sleeping/discarded tabs across all windows to force Chrome sync.",
+  "permissions": ["tabs"],
+  "background": {
+    "service_worker": "worker.js"
+  },
+  "action": {
+    "default_popup": "popup.html"
+  }
+}

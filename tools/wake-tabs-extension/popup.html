@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <style>
+    body {
+      width: 300px;
+      padding: 12px;
+      font-family: system-ui, sans-serif;
+      font-size: 13px;
+    }
+    button {
+      width: 100%;
+      padding: 8px;
+      font-size: 14px;
+      cursor: pointer;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      background: #4285f4;
+      color: white;
+    }
+    button:hover { background: #3367d6; }
+    button:disabled { background: #ccc; cursor: default; }
+    #status {
+      margin-top: 10px;
+      color: #555;
+    }
+  </style>
+</head>
+<body>
+  <button id="wake">Wake All Tabs</button>
+  <div id="status"></div>
+  <script src="popup.js"></script>
+</body>
+</html>

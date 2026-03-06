@@ -240,7 +240,8 @@ public class TabMachineService
                 eventCounts[eventType] = eventCounts.GetValueOrDefault(eventType) + 1;
                 var deltaJson = JsonSerializer.Serialize(meaningfulDelta, JsonSerializerOptions.Web);
                 RecordEvent(prev.TabIdentityId, eventType, timestamp, deltaJson, curr);
-                UpdateTabIdentity(prev.TabIdentityId, curr, timestamp, navigated: eventType == TabEventType.Navigated);
+                var lastNavTime = delta.ContainsKey("navigationHistory") ? GetLastRealNavTimestamp(curr.NavigationHistoryJson) : null;
+                UpdateTabIdentity(prev.TabIdentityId, curr, timestamp, lastNavTime);
             }
 
             transaction.Commit();
@@ -269,12 +270,20 @@ public class TabMachineService
         }
     }
 
+    // Chrome prefixes sleeping/frozen tab titles with "💤 " — strip it so waking tabs don't generate spurious TitleChanged events
+    private static string NormalizeTitle(string? title)
+    {
+        if (string.IsNullOrEmpty(title)) return "";
+        return title.StartsWith("\U0001F4A4 ") ? title[3..] :
+               title.StartsWith("\U0001F4A4") ? title[2..] : title;
+    }
+
     private static Dictionary<string, object?>? ComputeDelta(CurrentStateRow prev, SnapshotTab curr)
     {
         var delta = new Dictionary<string, object?>();
 
         if (prev.Url != curr.Url) delta["url"] = curr.Url;
-        if (prev.Title != curr.Title) delta["title"] = curr.Title;
+        if (NormalizeTitle(prev.Title) != NormalizeTitle(curr.Title)) delta["title"] = curr.Title;
         if (prev.Pinned != curr.Pinned) delta["pinned"] = curr.Pinned;
         if (prev.LastActiveTime != curr.LastActiveTime) delta["lastActiveTime"] = curr.LastActiveTime;
         if (prev.WindowIndex != curr.WindowIndex) delta["windowIndex"] = curr.WindowIndex;
@@ -431,14 +440,55 @@ public class TabMachineService
         cmd.Parameters.AddWithValue("@ls", timestamp.ToString("O"));
         cmd.Parameters.AddWithValue("@lat", (object?)tab.LastActiveTime ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@fat", (object?)tab.LastActiveTime ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("@ln", DBNull.Value);
+        cmd.Parameters.AddWithValue("@ln", (object?)GetLastRealNavTimestamp(tab.NavigationHistoryJson) ?? DBNull.Value);
         return (long)cmd.ExecuteScalar()!;
     }
 
-    private void UpdateTabIdentity(long identityId, SnapshotTab tab, DateTime timestamp, bool navigated)
+    // Extract the timestamp of the last real navigation entry, skipping sleep/wake transitions
+    // (entries where the URL didn't change and the title only differs by the 💤 prefix)
+    private static string? GetLastRealNavTimestamp(string? navHistoryJson)
+    {
+        if (string.IsNullOrEmpty(navHistoryJson)) return null;
+        try
+        {
+            using var doc = JsonDocument.Parse(navHistoryJson);
+            string? lastTs = null;
+            string? prevUrl = null;
+            string? prevTitle = null;
+
+            foreach (var entry in doc.RootElement.EnumerateArray())
+            {
+                var url = entry.GetProperty("url").GetString() ?? "";
+                var title = entry.GetProperty("title").GetString() ?? "";
+                var ts = entry.GetProperty("timestamp").GetString();
+
+                // If URL matches previous entry, check if it's just a sleep/wake title change
+                if (prevUrl != null && url == prevUrl && IsSleepWakeTitleChange(prevTitle, title))
+                {
+                    prevTitle = title;
+                    continue;
+                }
+
+                if (ts != null) lastTs = ts;
+                prevUrl = url;
+                prevTitle = title;
+            }
+            return lastTs;
+        }
+        catch { return null; }
+    }
+
+    // Returns true if the only difference between two titles is the 💤 prefix
+    private static bool IsSleepWakeTitleChange(string? a, string? b)
+    {
+        if (a == null || b == null) return false;
+        return NormalizeTitle(a) == NormalizeTitle(b);
+    }
+
+    private void UpdateTabIdentity(long identityId, SnapshotTab tab, DateTime timestamp, string? lastNavTime)
     {
         using var cmd = _db.Connection.CreateCommand();
-        cmd.CommandText = navigated
+        cmd.CommandText = lastNavTime != null
             ? """
               UPDATE tab_identities
               SET last_url = @lu, last_title = @lt, last_seen = @ls, last_active_time = @lat, last_navigated = @ln
@@ -453,8 +503,8 @@ public class TabMachineService
         cmd.Parameters.AddWithValue("@lt", tab.Title);
         cmd.Parameters.AddWithValue("@ls", timestamp.ToString("O"));
         cmd.Parameters.AddWithValue("@lat", (object?)tab.LastActiveTime ?? DBNull.Value);
-        if (navigated)
-            cmd.Parameters.AddWithValue("@ln", timestamp.ToString("O"));
+        if (lastNavTime != null)
+            cmd.Parameters.AddWithValue("@ln", lastNavTime);
         cmd.Parameters.AddWithValue("@id", identityId);
         cmd.ExecuteNonQuery();
     }

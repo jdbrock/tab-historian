@@ -177,7 +177,7 @@ public class TabMachineReader
         }
         else
         {
-            orderBy = "ORDER BY ti.last_active_time DESC NULLS LAST, ti.last_seen DESC";
+            orderBy = "ORDER BY COALESCE(ti.last_navigated, ti.last_active_time) DESC NULLS LAST, ti.last_seen DESC";
         }
 
         cmd.CommandText = $"""
