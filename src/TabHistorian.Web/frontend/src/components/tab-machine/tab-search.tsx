@@ -18,22 +18,42 @@ import type { TabIdentity } from "@/lib/types";
 
 type ViewMode = "window" | "flat";
 
+function loadStoredFilter<T>(key: string, parse: (v: string) => T, fallback: T): T {
+  if (typeof window === "undefined") return fallback;
+  try {
+    const v = localStorage.getItem(key);
+    return v !== null ? parse(v) : fallback;
+  } catch { return fallback; }
+}
+
+function storeFilter(key: string, value: string | null) {
+  try {
+    if (value === null) localStorage.removeItem(key);
+    else localStorage.setItem(key, value);
+  } catch { /* ignore */ }
+}
+
 export function TabSearch() {
   const [query, setQuery] = useState("");
-  const [profile, setProfile] = useState<string | undefined>(undefined);
-  const [isOpen, setIsOpen] = useState<boolean | undefined>(undefined);
-  const [viewMode, setViewMode] = useState<ViewMode>("window");
+  const [profile, setProfile] = useState<string | undefined>(() =>
+    loadStoredFilter("th-profile", (v) => v === "all" ? undefined : v, undefined)
+  );
+  const [isOpen, setIsOpen] = useState<boolean | undefined>(() =>
+    loadStoredFilter("th-isOpen", (v) => v === "all" ? undefined : v === "open", true)
+  );
+  const [viewMode, setViewMode] = useState<ViewMode>(() =>
+    loadStoredFilter("th-viewMode", (v) => (v === "window" ? "window" : "flat") as ViewMode, "flat")
+  );
 
   const { data: profiles } = useTabMachineProfiles();
 
-  const effectiveIsOpen = viewMode === "window" ? true : isOpen;
   const effectiveSort = viewMode === "window" ? "window" : undefined;
 
   const { data, isLoading, hasNextPage, fetchNextPage, isFetchingNextPage } =
     useTabMachineSearch({
       q: query || undefined,
       profile,
-      isOpen: effectiveIsOpen,
+      isOpen,
       sort: effectiveSort,
       pageSize: viewMode === "window" ? 200 : 50,
     });
@@ -67,7 +87,10 @@ export function TabSearch() {
         {profiles && profiles.length > 1 && (
           <Select
             value={profile ?? "all"}
-            onValueChange={(v) => setProfile(v === "all" ? undefined : v)}
+            onValueChange={(v) => {
+              setProfile(v === "all" ? undefined : v);
+              storeFilter("th-profile", v);
+            }}
           >
             <SelectTrigger size="sm" className="w-auto">
               <SelectValue placeholder="All profiles" />
@@ -82,46 +105,41 @@ export function TabSearch() {
             </SelectContent>
           </Select>
         )}
-        {viewMode === "flat" && (
-          <Select
-            value={isOpen === undefined ? "all" : isOpen ? "open" : "closed"}
-            onValueChange={(v) =>
-              setIsOpen(v === "all" ? undefined : v === "open")
-            }
-          >
-            <SelectTrigger size="sm" className="w-auto">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All tabs</SelectItem>
-              <SelectItem value="open">Open</SelectItem>
-              <SelectItem value="closed">Closed</SelectItem>
-            </SelectContent>
-          </Select>
-        )}
-        {!isLoading && (
-          <span className="text-xs text-muted-foreground">
-            {totalCount.toLocaleString()} tab{totalCount !== 1 ? "s" : ""}
-          </span>
-        )}
+        <Select
+          value={isOpen === undefined ? "all" : isOpen ? "open" : "closed"}
+          onValueChange={(v) => {
+            const val = v === "all" ? undefined : v === "open";
+            setIsOpen(val);
+            storeFilter("th-isOpen", v);
+          }}
+        >
+          <SelectTrigger size="sm" className="w-auto">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All tabs</SelectItem>
+            <SelectItem value="open">Open</SelectItem>
+            <SelectItem value="closed">Closed</SelectItem>
+          </SelectContent>
+        </Select>
         <div className="flex items-center rounded-md border border-border/50 ml-auto">
-          <Button
-            variant={viewMode === "window" ? "secondary" : "ghost"}
-            size="sm"
-            className="h-8 rounded-r-none gap-1.5 px-3"
-            onClick={() => setViewMode("window")}
-          >
-            <LayoutGrid className="h-3.5 w-3.5" />
-            By Window
-          </Button>
           <Button
             variant={viewMode === "flat" ? "secondary" : "ghost"}
             size="sm"
-            className="h-8 rounded-l-none gap-1.5 px-3"
-            onClick={() => setViewMode("flat")}
+            className="h-8 rounded-r-none gap-1.5 px-3"
+            onClick={() => { setViewMode("flat"); storeFilter("th-viewMode", "flat"); }}
           >
             <List className="h-3.5 w-3.5" />
-            All Tabs
+            Tabs
+          </Button>
+          <Button
+            variant={viewMode === "window" ? "secondary" : "ghost"}
+            size="sm"
+            className="h-8 rounded-l-none gap-1.5 px-3"
+            onClick={() => { setViewMode("window"); storeFilter("th-viewMode", "window"); }}
+          >
+            <LayoutGrid className="h-3.5 w-3.5" />
+            Windows
           </Button>
         </div>
       </div>

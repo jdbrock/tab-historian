@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 
 import { History } from "lucide-react";
@@ -11,6 +12,10 @@ import { TimeTravel } from "./time-travel";
 
 export function TabMachinePage() {
   const { data: stats } = useTabMachineStats();
+  const [tab, setTab] = useState(() => {
+    if (typeof window === "undefined") return "search";
+    try { return localStorage.getItem("th-tab") ?? "search"; } catch { return "search"; }
+  });
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -37,7 +42,7 @@ export function TabMachinePage() {
         </div>
 
         <div className="w-full max-w-3xl">
-          <Tabs defaultValue="search">
+          <Tabs value={tab} onValueChange={(v) => { setTab(v); try { localStorage.setItem("th-tab", v); } catch {} }}>
             <TabsList className="w-full justify-center">
               <TabsTrigger value="search">Search</TabsTrigger>
               <TabsTrigger value="timeline">Time Travel</TabsTrigger>
