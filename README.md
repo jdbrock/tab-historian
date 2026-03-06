@@ -20,6 +20,7 @@ A .NET tool that snapshots all Chrome tabs across every window and profile, stor
 | `TabHistorian.Common` | Shared library — settings loader and read-only database access, referenced by all other projects. |
 | `TabHistorian.Viewer` | WPF desktop app — search and browse tab history in a tree view (Snapshot > Profile > Window > Tab > Navigation History) with detail panel, favicons, and open-in-browser buttons. |
 | `TabHistorian.Web` | ASP.NET minimal API + Next.js SPA — dark-themed web frontend with Tab Machine (event-sourced tab tracking with search and time travel), full snapshot browser with live search and infinite scroll, and hierarchical explorer. Listens on port 17000. |
+| `TabHistorian.ChromeExtension` | Chrome sidebar extension — embeds the web frontend in a side panel for quick access while browsing. |
 
 ## Requirements
 
@@ -83,6 +84,10 @@ Opens on `http://localhost:17000`. The web frontend includes:
 - **Tab Machine** — event-sourced tab tracking with search across all tracked tabs and time travel to view tab state at any point in history
 - **Full Snapshots** — browse snapshots with live search, infinite scroll, and profile filtering
 - **Explorer** — hierarchical drill-down through snapshots, profiles, windows, and tabs
+
+### Chrome sidebar extension
+
+Load the extension from `src/TabHistorian.ChromeExtension` via `chrome://extensions` (Developer mode > Load unpacked). Click the Tab Historian icon in the toolbar to open the web frontend in a sidebar panel.
 
 ## Tab Machine
 
