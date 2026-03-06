@@ -18,12 +18,16 @@ public record TabRow(
 public class TabHistorianDb : IDisposable
 {
     private readonly SqliteConnection _connection;
+    private readonly List<string> _ignoredProfiles;
+    private readonly Dictionary<string, string> _profileDisplayNames;
 
     public string DbPath { get; }
 
     public TabHistorianDb(TabHistorianSettings settings)
     {
         DbPath = settings.ResolvedDatabasePath;
+        _ignoredProfiles = settings.IgnoredProfiles;
+        _profileDisplayNames = settings.ProfileDisplayNames;
 
         if (!File.Exists(DbPath))
             throw new FileNotFoundException($"Database not found at {DbPath}. Run the TabHistorian service first.");
@@ -66,21 +70,53 @@ public class TabHistorianDb : IDisposable
     public List<ProfileInfo> GetProfiles()
     {
         using var cmd = _connection.CreateCommand();
-        cmd.CommandText = """
+        var ignFilter = AddIgnoredProfileParams(cmd, "w");
+        var where = string.IsNullOrEmpty(ignFilter) ? "" : $"WHERE {ignFilter}";
+        cmd.CommandText = $"""
             SELECT DISTINCT w.profile_name, w.profile_display_name
             FROM windows w
-            ORDER BY w.profile_display_name
+            {where}
             """;
 
         var results = new List<ProfileInfo>();
         using var reader = cmd.ExecuteReader();
         while (reader.Read())
         {
-            results.Add(new ProfileInfo(
-                reader.GetString(0),
-                reader.IsDBNull(1) ? reader.GetString(0) : reader.GetString(1)));
+            var profileName = reader.GetString(0);
+            var dbDisplayName = reader.IsDBNull(1) ? profileName : reader.GetString(1);
+            var displayName = _profileDisplayNames.TryGetValue(profileName, out var overrideName)
+                ? overrideName : dbDisplayName;
+            results.Add(new ProfileInfo(profileName, displayName));
         }
+        var isRemote = (ProfileInfo p) => p.ProfileName.StartsWith("synced:");
+        var isDefault = (ProfileInfo p) => p.ProfileName == "Default";
+        results.Sort((a, b) =>
+        {
+            var aRemote = isRemote(a);
+            var bRemote = isRemote(b);
+            if (aRemote != bRemote) return aRemote ? 1 : -1;
+            if (!aRemote)
+            {
+                var aDefault = isDefault(a);
+                var bDefault = isDefault(b);
+                if (aDefault != bDefault) return aDefault ? -1 : 1;
+            }
+            return string.Compare(a.ProfileDisplayName, b.ProfileDisplayName, StringComparison.OrdinalIgnoreCase);
+        });
         return results;
+    }
+
+    private string AddIgnoredProfileParams(SqliteCommand cmd, string alias)
+    {
+        if (_ignoredProfiles.Count == 0) return "";
+        var paramNames = new List<string>();
+        for (var i = 0; i < _ignoredProfiles.Count; i++)
+        {
+            var name = $"@ign{i}";
+            paramNames.Add(name);
+            cmd.Parameters.AddWithValue(name, _ignoredProfiles[i]);
+        }
+        return $"{alias}.profile_name NOT IN ({string.Join(", ", paramNames)})";
     }
 
     public int CountTabs(string? query, long? snapshotId, string? profileName)

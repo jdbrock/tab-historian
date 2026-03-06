@@ -58,8 +58,8 @@ Settings are stored in `%ProgramData%\TabHistorian\settings.json` (created with 
 | `databasePath` | Path to the main SQLite database for snapshots. |
 | `tabMachineDatabasePath` | Path to the Tab Machine database for event-sourced tab tracking. |
 | `backupDirectory` | Directory for daily database backups. |
-| `ignoredProfiles` | List of Chrome profile directory names to skip (e.g. `["Profile 3"]`). |
-| `profileDisplayNames` | Map of profile directory names to friendly display names (e.g. `{"Default": "Personal"}`). |
+| `ignoredProfiles` | List of profile names to hide from the web frontend (e.g. `["Profile 3", "synced:Personal:abc=="]`). |
+| `profileDisplayNames` | Map of profile names to friendly display names (e.g. `{"synced:Personal:abc==": "Remote: Joe's iPhone (Personal)"}`). |
 
 Relative paths resolve against the settings directory. Absolute paths (including UNC paths with forward slashes) are used as-is.
 

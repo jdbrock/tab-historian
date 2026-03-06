@@ -118,6 +118,22 @@ public class TabMachineReader
             var dbDisplayName = reader.IsDBNull(1) ? null : reader.GetString(1);
             results.Add(new ProfileRow(profileName, ResolveDisplayName(profileName, dbDisplayName)));
         }
+        var isRemote = (ProfileRow p) => p.ProfileName.StartsWith("synced:");
+        var isDefault = (ProfileRow p) => p.ProfileName == "Default";
+        results.Sort((a, b) =>
+        {
+            var aRemote = isRemote(a);
+            var bRemote = isRemote(b);
+            if (aRemote != bRemote) return aRemote ? 1 : -1;
+            // Default profile (Personal) always first among local profiles
+            if (!aRemote)
+            {
+                var aDefault = isDefault(a);
+                var bDefault = isDefault(b);
+                if (aDefault != bDefault) return aDefault ? -1 : 1;
+            }
+            return string.Compare(a.DisplayName, b.DisplayName, StringComparison.OrdinalIgnoreCase);
+        });
         return results;
     }
 
