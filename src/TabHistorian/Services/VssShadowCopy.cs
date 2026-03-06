@@ -1,4 +1,5 @@
 using System.Management;
+using System.Runtime.Versioning;
 
 namespace TabHistorian.Services;
 
@@ -7,6 +8,7 @@ namespace TabHistorian.Services;
 /// that are exclusively locked by other processes (e.g. Chrome session files).
 /// Requires elevation (admin privileges) to create shadow copies.
 /// </summary>
+[SupportedOSPlatform("windows")]
 public sealed class VssShadowCopy : IDisposable
 {
     private readonly ILogger<VssShadowCopy> _logger;

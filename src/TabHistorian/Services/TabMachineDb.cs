@@ -6,9 +6,13 @@ namespace TabHistorian.Services;
 public class TabMachineDb : IDisposable
 {
     private readonly SqliteConnection _connection;
+    private readonly TabHistorianSettings _settings;
+    private readonly ILogger<TabMachineDb> _logger;
 
     public TabMachineDb(TabHistorianSettings settings, ILogger<TabMachineDb> logger)
     {
+        _settings = settings;
+        _logger = logger;
         var dbPath = settings.ResolvedTabMachineDatabasePath;
         Directory.CreateDirectory(Path.GetDirectoryName(dbPath)!);
 
@@ -139,6 +143,48 @@ public class TabMachineDb : IDisposable
                 return true;
         }
         return false;
+    }
+
+    public void BackupDatabase()
+    {
+        var backupDir = _settings.ResolvedBackupDirectory;
+        var backupName = $"tabmachine-{DateTime.UtcNow:yyyy-MM-dd}.db";
+        var backupPath = Path.Combine(backupDir, backupName);
+
+        if (File.Exists(backupPath))
+        {
+            _logger.LogDebug("TabMachine backup already exists for today: {Path}", backupPath);
+            return;
+        }
+
+        var dbPath = _settings.ResolvedTabMachineDatabasePath;
+        var dbSize = new FileInfo(dbPath).Length;
+        _logger.LogInformation("Starting TabMachine backup ({DbSize:F1} MB) to {Path}",
+            dbSize / (1024.0 * 1024.0), backupPath);
+
+        Directory.CreateDirectory(backupDir);
+
+        try
+        {
+            using var destConn = new SqliteConnection($"Data Source={backupPath}");
+            destConn.Open();
+            _connection.BackupDatabase(destConn, "main", "main");
+            destConn.Close();
+
+            var backupSize = new FileInfo(backupPath).Length;
+            _logger.LogInformation("TabMachine backup complete ({BackupSize:F1} MB): {Path}",
+                backupSize / (1024.0 * 1024.0), backupPath);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "TabMachine backup failed, cleaning up partial file: {Path}", backupPath);
+            try { File.Delete(backupPath); }
+            catch (Exception cleanupEx)
+            {
+                _logger.LogWarning(cleanupEx, "Failed to clean up partial backup file: {Path}", backupPath);
+            }
+            throw;
+        }
     }
 
     public void Dispose()

@@ -41,14 +41,25 @@ Takes a single snapshot and exits. Run elevated (as administrator) to read Chrom
 
 ### Configuration
 
-Settings are stored in `%USERPROFILE%\Documents\TabHistorian\settings.json` (created with defaults on first run):
+Settings are stored in `%ProgramData%\TabHistorian\settings.json` (created with defaults on first run):
 
 ```json
 {
   "databasePath": "tabhistorian.db",
-  "backupDirectory": "backups"
+  "tabMachineDatabasePath": "TabMachine.db",
+  "backupDirectory": "backups",
+  "ignoredProfiles": [],
+  "profileDisplayNames": {}
 }
 ```
+
+| Setting | Description |
+|---------|-------------|
+| `databasePath` | Path to the main SQLite database for snapshots. |
+| `tabMachineDatabasePath` | Path to the Tab Machine database for event-sourced tab tracking. |
+| `backupDirectory` | Directory for daily database backups. |
+| `ignoredProfiles` | List of Chrome profile directory names to skip (e.g. `["Profile 3"]`). |
+| `profileDisplayNames` | Map of profile directory names to friendly display names (e.g. `{"Default": "Personal"}`). |
 
 Relative paths resolve against the settings directory. Absolute paths (including UNC paths with forward slashes) are used as-is.
 
@@ -74,6 +85,16 @@ dotnet run --project src/TabHistorian.Viewer
 - Open URLs directly in Chrome or Edge from the detail panel
 
 ### Running the web frontend
+
+Build the Next.js frontend first (requires [bun](https://bun.sh)):
+
+```
+cd src/TabHistorian.Web/frontend
+bun install
+bun run build
+```
+
+Then start the API server, which serves the built frontend:
 
 ```
 dotnet run --project src/TabHistorian.Web
@@ -129,7 +150,7 @@ Key implementation details are documented in [LEARNINGS.md](LEARNINGS.md).
 
 ## Database backups
 
-The database is automatically backed up daily (via `VACUUM INTO`) to the configured backup directory. Backups are named `tabhistorian-YYYY-MM-DD.db` and only one is created per day.
+Both databases are automatically backed up daily (via SQLite's online backup API) to the configured backup directory. Backups are named `tabhistorian-YYYY-MM-DD.db` and `tabmachine-YYYY-MM-DD.db`, one of each per day.
 
 ## Safety
 

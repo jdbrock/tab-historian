@@ -19,6 +19,8 @@ Log.Logger = new LoggerConfiguration()
     .WriteTo.File(logPath, rollingInterval: RollingInterval.Day, retainedFileCountLimit: 14)
     .CreateLogger();
 
+Log.Information("================ TabHistorian starting (PID {Pid}) ================", Environment.ProcessId);
+
 try
 {
     var builder = Host.CreateApplicationBuilder(args);
@@ -35,6 +37,18 @@ try
     builder.Services.AddHostedService<Worker>();
 
     var host = builder.Build();
+
+    // Safety timeout: force-exit if the process hangs, so the mutex is released
+    // and the next scheduled run isn't blocked indefinitely
+    var timeout = TimeSpan.FromMinutes(2);
+    using var cts = new CancellationTokenSource(timeout);
+    cts.Token.Register(() =>
+    {
+        Log.Error("Process exceeded {Timeout} minute timeout — force exiting", timeout.TotalMinutes);
+        Log.CloseAndFlush();
+        Environment.Exit(2);
+    });
+
     host.Run();
 }
 finally

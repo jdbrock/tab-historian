@@ -2,7 +2,7 @@ using TabHistorian.Services;
 
 namespace TabHistorian;
 
-public class Worker(SnapshotService snapshotService, StorageService storage, TabMachineService tabMachine, IHostApplicationLifetime lifetime, ILogger<Worker> logger) : BackgroundService
+public class Worker(SnapshotService snapshotService, StorageService storage, TabMachineService tabMachine, TabMachineDb tabMachineDb, IHostApplicationLifetime lifetime, ILogger<Worker> logger) : BackgroundService
 {
     private static readonly TimeSpan SnapshotInterval = TimeSpan.FromMinutes(30);
 
@@ -42,6 +42,7 @@ public class Worker(SnapshotService snapshotService, StorageService storage, Tab
             try
             {
                 storage.BackupDatabase();
+                tabMachineDb.BackupDatabase();
             }
             catch (Exception ex)
             {
