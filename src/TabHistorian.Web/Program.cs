@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Scalar.AspNetCore;
 using TabHistorian.Common;
+using TabHistorian.Web;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.WebHost.UseUrls("http://0.0.0.0:17000");
@@ -17,6 +18,28 @@ app.UseCors();
 app.UseStaticFiles();
 app.MapOpenApi();
 app.MapScalarApiReference();
+
+// SSE: push "db-updated" events when the worker writes to either database
+var settings = app.Services.GetRequiredService<TabHistorianSettings>();
+var dbWatcher = new DatabaseWatcher(settings);
+
+app.MapGet("/api/events", async (HttpContext ctx, CancellationToken ct) =>
+{
+    ctx.Response.ContentType = "text/event-stream";
+    ctx.Response.Headers.CacheControl = "no-cache";
+    ctx.Response.Headers.Connection = "keep-alive";
+
+    await ctx.Response.WriteAsync($"data: connected\n\n", ct);
+    await ctx.Response.Body.FlushAsync(ct);
+
+    using var sub = dbWatcher.Subscribe();
+    while (!ct.IsCancellationRequested)
+    {
+        var db = await sub.WaitAsync(ct);
+        await ctx.Response.WriteAsync($"data: {{\"type\":\"db-updated\",\"database\":\"{db}\"}}\n\n", ct);
+        await ctx.Response.Body.FlushAsync(ct);
+    }
+});
 
 var api = app.MapGroup("/api");
 
