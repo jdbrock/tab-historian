@@ -3,7 +3,7 @@
   "name": "Wake All Tabs",
   "version": "1.0",
   "description": "Activates all sleeping/discarded tabs across all windows to force Chrome sync.",
-  "permissions": ["tabs"],
+  "permissions": ["tabs", "alarms", "storage"],
   "background": {
     "service_worker": "worker.js"
   },

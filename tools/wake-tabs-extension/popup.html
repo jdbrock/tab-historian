@@ -15,11 +15,22 @@
       cursor: pointer;
       border: 1px solid #ccc;
       border-radius: 4px;
-      background: #4285f4;
       color: white;
     }
-    button:hover { background: #3367d6; }
-    button:disabled { background: #ccc; cursor: default; }
+    #wake {
+      background: #4285f4;
+    }
+    #wake:hover { background: #3367d6; }
+    #wake:disabled { background: #ccc; cursor: default; }
+    #cancel {
+      background: #d93025;
+    }
+    #cancel:hover { background: #b7271d; }
+    #skip {
+      background: #f9ab00;
+      margin-top: 6px;
+    }
+    #skip:hover { background: #e09600; }
     #status {
       margin-top: 10px;
       color: #555;
@@ -28,6 +39,8 @@
 </head>
 <body>
   <button id="wake">Wake All Tabs</button>
+  <button id="cancel">Cancel</button>
+  <button id="skip">Skip Wait</button>
   <div id="status"></div>
   <script src="popup.js"></script>
 </body>
